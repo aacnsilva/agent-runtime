@@ -51,6 +51,7 @@ export interface Window {
 }
 
 const RECENT_LIMIT = 50;
+const ANSWERED_OUTCOMES = new Set(["answered", "tool_round"]);
 
 export const classify = (event: RunEvent): OutcomeClass => {
   if (event.status === 429) {
@@ -62,7 +63,7 @@ export const classify = (event: RunEvent): OutcomeClass => {
   if (event.status >= 400) {
     return "rejected";
   }
-  return event.outcome === "answered" ? "answered" : "guarded";
+  return ANSWERED_OUTCOMES.has(event.outcome) ? "answered" : "guarded";
 };
 
 export const percentile = (values: readonly number[], fraction: number): number | null => {

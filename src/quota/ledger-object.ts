@@ -5,13 +5,14 @@ import type {
   BeginInput,
   BeginResult,
   LedgerState,
+  NetworkInput,
   PoolStatus,
   ReleaseInput,
   SettleInput,
   StatusInput,
   Step,
 } from "./ledger";
-import { begin, emptyState, release, settle, status } from "./ledger";
+import { begin, emptyState, noteNetwork, release, settle, status } from "./ledger";
 
 const STATE_KEY = "state";
 
@@ -20,6 +21,10 @@ export class Ledger extends DurableObject<Env> {
 
   async begin(input: BeginInput): Promise<BeginResult> {
     return this.apply(input.now, (state) => begin(state, input));
+  }
+
+  async noteNetwork(input: NetworkInput): Promise<BeginResult> {
+    return this.apply(input.now, (state) => noteNetwork(state, input));
   }
 
   async settle(input: SettleInput): Promise<void> {

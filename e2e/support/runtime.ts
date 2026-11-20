@@ -93,6 +93,10 @@ export const startRuntime = async (options: RuntimeOptions): Promise<Runtime> =>
       `ANTHROPIC_BASE_URL:${options.providerUrl}`,
       "--var",
       `ADMIN_TOKEN:${options.adminToken}`,
+      "--var",
+      `EMBEDDINGS_BASE_URL:${options.providerUrl}`,
+      "--var",
+      "EMBEDDINGS_API_KEY:e2e-embeddings-key",
     ],
     {
       env: { ...process.env, CI: "1", WRANGLER_SEND_METRICS: "false" },

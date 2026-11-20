@@ -2,16 +2,22 @@ import { DASHBOARD_HTML } from "./admin/dashboard";
 import { handleAdminApi } from "./admin/handle-admin";
 import type { Env } from "./env";
 import type { RequestContext } from "./gateway/context";
+import { handleAttest } from "./gateway/handle-attest";
 import { handleRun } from "./gateway/handle-run";
+import { handleSession } from "./gateway/handle-session";
 import { handlePreflight, handleStatus } from "./gateway/handle-status";
 import { json, Rejection, rejectionResponse } from "./http/respond";
 import { logEvent } from "./observability/log";
 
+export { Knowledge } from "./knowledge/knowledge-object";
 export { Metrics } from "./observability/metrics-object";
 export { Ledger } from "./quota/ledger-object";
+export { Subject } from "./quota/subject-object";
+export { Session } from "./sessions/session-object";
 export { Registry } from "./tenants/registry-object";
 
-const TENANT_PATH = /^\/v1\/tenants\/([a-z0-9-]+)\/(runs|status)$/;
+const TENANT_PATH =
+  /^\/v1\/tenants\/([a-z0-9-]+)\/(runs|status|sessions|attest)(?:\/([A-Za-z0-9-]{3,64}))?$/;
 
 const html = (body: string): Response =>
   new Response(body, {
@@ -25,12 +31,34 @@ const html = (body: string): Response =>
     },
   });
 
-const routeTenant = async (
-  context: RequestContext,
-  tenantId: string,
-  resource: string,
-): Promise<Response> => {
+const MIN_SESSION_ID_CHARS = 8;
+
+interface TenantRoute {
+  tenantId: string;
+  resource: string;
+  detail: string;
+}
+
+const routeDetail = (context: RequestContext, target: TenantRoute): Promise<Response> | null => {
+  const { tenantId, resource, detail } = target;
   const { method } = context.request;
+  if (resource === "attest" && (detail === "challenge" || detail === "key")) {
+    return handleAttest(context, tenantId, detail);
+  }
+  const readsSession = method === "GET" || method === "DELETE";
+  if (resource === "sessions" && readsSession && detail.length >= MIN_SESSION_ID_CHARS) {
+    return handleSession(context, tenantId, detail);
+  }
+  return null;
+};
+
+const routeTenant = async (context: RequestContext, target: TenantRoute): Promise<Response> => {
+  const { tenantId, resource } = target;
+  const { method } = context.request;
+  const detailed = routeDetail(context, target);
+  if (detailed !== null) {
+    return detailed;
+  }
   if (method === "OPTIONS") {
     return handlePreflight(context, tenantId);
   }
@@ -46,8 +74,9 @@ const routeTenant = async (
 const route = async (context: RequestContext): Promise<Response> => {
   const { pathname } = new URL(context.request.url);
   const tenantMatch = TENANT_PATH.exec(pathname);
-  if (tenantMatch?.[1] !== undefined && tenantMatch[2] !== undefined) {
-    return routeTenant(context, tenantMatch[1], tenantMatch[2]);
+  if (tenantMatch !== null) {
+    const [, tenantId = "", resource = "", detail = ""] = tenantMatch;
+    return routeTenant(context, { tenantId, resource, detail });
   }
   if (pathname === "/health") {
     return json({ ok: true }, 200);

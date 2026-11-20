@@ -22,6 +22,8 @@ npx vitest run --config e2e/vitest.config.ts run performance
   every stream ends on exactly one `done` or `error` event.
 - The router falls back to the next model only when nothing was written and nothing can have been
   billed; it never retries silently after text has streamed.
+- A model that fails three times in a row is skipped for thirty seconds, unless it is the only
+  candidate. The circuit lives in each worker instance's memory, so it is per instance.
 
 ## Performance budgets (local worker, fake provider)
 

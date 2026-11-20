@@ -10,6 +10,7 @@ const LIMITS = { perHour: 2, perDay: 3, poolNanoEur: 1000 };
 const input = (overrides: Partial<BeginInput> = {}): BeginInput => ({
   now: NOW,
   ip: "1.1.1.1",
+  skipNetworkLimit: false,
   reserveNanoEur: 100,
   reservationId: crypto.randomUUID(),
   limits: LIMITS,
@@ -80,6 +81,13 @@ describe("ledger", () => {
     const view = status(spent, { now: december, limits: LIMITS });
     expect(view.result).toMatchObject({ month: "2026-12", spentNanoEur: 0, accepting: true });
     expect(status(spent, { now: NOW, limits: LIMITS }).result.accepting).toBe(false);
+  });
+
+  it("leaves the network limit out for an authenticated subject", () => {
+    const authenticated = { skipNetworkLimit: true };
+    const state = beginAll([input(authenticated), input(authenticated), input(authenticated)]);
+    expect(state.reservations).toHaveLength(3);
+    expect(state.ips).toEqual({});
   });
 
   it.each([0, -5, 1.5, Number.NaN])("refuses to reserve %s", (reserveNanoEur) => {

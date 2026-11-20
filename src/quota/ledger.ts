@@ -40,6 +40,7 @@ export interface Step<T> {
 export interface BeginInput {
   now: number;
   ip: string;
+  skipNetworkLimit: boolean;
   reserveNanoEur: number;
   reservationId: string;
   limits: Limits;
@@ -149,13 +150,36 @@ const poolRefusal = (state: LedgerState, input: BeginInput): Refusal | null => {
 
 const isPositiveAmount = (value: number): boolean => Number.isSafeInteger(value) && value > 0;
 
+export interface NetworkInput {
+  now: number;
+  ip: string;
+  perHour: number;
+  perDay: number;
+}
+
+export const noteNetwork = (previous: LedgerState, input: NetworkInput): Step<BeginResult> => {
+  const state = sweep(previous, input.now);
+  const hits = state.ips[input.ip] ?? [];
+  const refusal =
+    windowRefusal(hits, input.now, { spanMs: HOUR_MS, limit: input.perHour, error: "ip_hour" }) ??
+    windowRefusal(hits, input.now, { spanMs: DAY_MS, limit: input.perDay, error: "ip_day" });
+  if (refusal !== null) {
+    return { state, result: refusal };
+  }
+  return {
+    state: { ...state, ips: { ...state.ips, [input.ip]: [...hits, input.now] } },
+    result: { ok: true },
+  };
+};
+
 export const begin = (previous: LedgerState, input: BeginInput): Step<BeginResult> => {
   const state = sweep(previous, input.now);
   if (!isPositiveAmount(input.reserveNanoEur)) {
     return { state, result: refuse("bad_reserve", 60) };
   }
   const hits = state.ips[input.ip] ?? [];
-  const refusal = networkRefusal(hits, input) ?? poolRefusal(state, input);
+  const refusal =
+    (input.skipNetworkLimit ? null : networkRefusal(hits, input)) ?? poolRefusal(state, input);
   if (refusal !== null) {
     return { state, result: refusal };
   }
@@ -164,7 +188,7 @@ export const begin = (previous: LedgerState, input: BeginInput): Step<BeginResul
     state: {
       ...state,
       reservations: [...state.reservations, reservation],
-      ips: { ...state.ips, [input.ip]: [...hits, input.now] },
+      ips: input.skipNetworkLimit ? state.ips : { ...state.ips, [input.ip]: [...hits, input.now] },
     },
     result: { ok: true },
   };

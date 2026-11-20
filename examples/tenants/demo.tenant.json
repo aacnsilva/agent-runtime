@@ -12,6 +12,7 @@
     "usdPerEur": 1.08
   },
   "agent": {
+    "kind": "gated",
     "tier": "fast",
     "effort": "low",
     "maxOutputTokens": 1500,

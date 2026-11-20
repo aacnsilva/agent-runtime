@@ -1,79 +1,50 @@
+import type { ChatTurn, QuotaPort } from "../agent/chat";
+import { chatRound } from "../agent/chat";
+import { createChatStream } from "../agent/chat-stream";
 import { GateStream } from "../agent/gate-stream";
-import type { RunInput, RunResult } from "../agent/run";
+import type { RunInput } from "../agent/run";
 import { answer, reserve } from "../agent/run";
+import { runSessionTurn } from "../agent/session-run";
+import type { Spend } from "../agent/spend";
+import { authenticate, clientIp } from "../authn/authenticate";
+import type { Principal } from "../authn/principal";
 import { corsHeaders, withHeaders } from "../http/cors";
 import { json, Rejection, rejectionResponse } from "../http/respond";
 import { createAnthropicProvider } from "../llm/anthropic";
-import { NO_USAGE } from "../llm/cost";
-import type { RunEvent } from "../observability/events";
-import { recordRun } from "../observability/record";
+import type { Listeners } from "../llm/provider";
+import { sessionPort, sessionStub } from "../sessions/session-port";
 import { loadTenant } from "../tenants/registry";
-import type { Tenant } from "../tenants/schema";
+import type { ChatAgent, Contract, GatedAgent, Tenant } from "../tenants/schema";
+import { contractHash } from "../tools/contract-hash";
+import { toolRuntimeFor } from "../tools/runtime";
+import { parseChat, parseStoredTurn } from "./chat-body";
 import type { RequestContext } from "./context";
 import { parseConversation } from "./conversation";
+import type { Delivery, Finished } from "./measure";
+import { recordFinished, recordRejected } from "./measure";
+import type { Emit, StreamEvent } from "./stream";
+import { streamResponse, wantsStream } from "./stream";
 
 const UNCONFIGURED_MESSAGE = "The answer service is not configured yet.";
 
-interface Delivery {
-  streamed: boolean;
-  ttftMs: number | null;
+interface Call {
+  context: RequestContext;
+  tenant: Tenant;
+  principal: Principal;
+  spend: Spend;
+  body: string;
 }
 
-const baseEvent = (context: RequestContext, tenantId: string, streamed: boolean): RunEvent => ({
-  at: context.startedAt,
-  tenant: tenantId,
-  requestId: context.requestId,
-  outcome: "",
-  status: 0,
-  streamed,
-  model: null,
-  attempts: 0,
-  latencyMs: Date.now() - context.startedAt,
-  ttftMs: null,
-  inputTokens: NO_USAGE.input,
-  outputTokens: NO_USAGE.output,
-  cacheReadTokens: NO_USAGE.cacheRead,
-  cacheWriteTokens: NO_USAGE.cacheWrite,
-  costNanoEur: 0,
-});
-
-const recordResult = (context: RequestContext, run: RunResult, delivery: Delivery): void => {
-  recordRun(context.env, context.ctx, {
-    ...baseEvent(context, run.tenantId, delivery.streamed),
-    outcome: run.outcome,
-    status: run.status,
-    model: run.model,
-    attempts: run.attempts,
-    ttftMs: delivery.ttftMs,
-    inputTokens: run.usage.input,
-    outputTokens: run.usage.output,
-    cacheReadTokens: run.usage.cacheRead,
-    cacheWriteTokens: run.usage.cacheWrite,
-    costNanoEur: run.costNanoEur,
-  });
-};
-
-const wantsStream = (request: Request): boolean =>
-  (request.headers.get("Accept") ?? "").includes("text/event-stream");
-
-const assertOrigin = (request: Request, tenant: Tenant): void => {
-  const origin = request.headers.get("Origin");
-  if (origin !== null && !tenant.authn.allowedOrigins.includes(origin)) {
-    throw new Rejection(403, "origin");
-  }
-};
-
-const prepare = async (context: RequestContext, tenant: Tenant): Promise<RunInput> => {
-  const { request, env } = context;
-  assertOrigin(request, tenant);
+const spendFor = (context: RequestContext, tenant: Tenant, principal: Principal): Spend => {
+  const { env } = context;
   if (env.ANTHROPIC_API_KEY === undefined || env.ANTHROPIC_API_KEY === "") {
     throw new Rejection(503, "unconfigured", { message: UNCONFIGURED_MESSAGE });
   }
-  const messages = parseConversation(await request.text(), tenant.agent.input);
   return {
     tenant,
-    messages,
-    ip: request.headers.get("CF-Connecting-IP") ?? "unknown",
+    tier: principal.tier,
+    ip: clientIp(context.request),
+    skipNetworkLimit: principal.authenticated,
     provider: createAnthropicProvider({
       apiKey: env.ANTHROPIC_API_KEY,
       baseURL: env.ANTHROPIC_BASE_URL,
@@ -82,61 +53,193 @@ const prepare = async (context: RequestContext, tenant: Tenant): Promise<RunInpu
   };
 };
 
-const sseHeaders = (): Headers => {
-  const headers = new Headers();
-  headers.set("content-type", "text/event-stream; charset=utf-8");
-  headers.set("cache-control", "no-store");
-  return headers;
+const finalEvent = (run: Finished): StreamEvent => ({
+  type: run.status === 200 ? "done" : "error",
+  ...run.body,
+});
+
+type Work = (emit: Emit | undefined, delivery: Delivery) => Promise<Finished>;
+
+const deliver = async (call: Call, work: Work): Promise<Response> => {
+  const { context, tenant } = call;
+  if (!wantsStream(context.request)) {
+    const delivery = { streamed: false, ttftMs: null };
+    const run = await work(undefined, delivery);
+    recordFinished({ context, tenantId: tenant.id, run, delivery });
+    return json(run.body, run.status);
+  }
+  const delivery: Delivery = { streamed: true, ttftMs: null };
+  return streamResponse(context, async (emit) => {
+    const run = await work(emit, delivery).catch((error: unknown) => failedMidStream(error));
+    recordFinished({ context, tenantId: tenant.id, run, delivery });
+    return finalEvent(run);
+  });
 };
 
-const streamAnswer = (
-  context: RequestContext,
-  input: RunInput,
-  reservation: Awaited<ReturnType<typeof reserve>>,
-): Response => {
-  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
-  const writer = writable.getWriter();
-  const encoder = new TextEncoder();
-  const gate = new GateStream();
-  const delivery: Delivery = { streamed: true, ttftMs: null };
-  const send = async (event: Record<string, unknown>): Promise<void> => {
-    await writer.write(encoder.encode(`data: ${JSON.stringify(event)}\n\n`)).catch(() => undefined);
+const failedMidStream = (error: unknown): Finished => {
+  if (!(error instanceof Rejection)) {
+    throw error;
+  }
+  return {
+    status: error.status,
+    outcome: error.code,
+    body: {
+      error: error.code,
+      ...(error.publicMessage === undefined ? {} : { message: error.publicMessage }),
+    },
+    model: null,
+    attempts: 0,
+    usage: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 },
+    costNanoEur: 0,
   };
-  const onText = (text: string): void => {
-    const piece = gate.push(text);
-    if (piece === "") {
-      return;
-    }
-    delivery.ttftMs ??= Date.now() - context.startedAt;
-    void send({ type: "delta", text: piece });
+};
+
+const deltaEmitter = (
+  call: Call,
+  emit: Emit | undefined,
+  delivery: Delivery,
+): ((text: string) => void) | undefined =>
+  emit === undefined
+    ? undefined
+    : (text) => {
+        if (text === "") {
+          return;
+        }
+        delivery.ttftMs ??= Date.now() - call.context.startedAt;
+        emit({ type: "delta", text });
+      };
+
+const gatedResponse = async (call: Call, agent: GatedAgent): Promise<Response> => {
+  const input: RunInput = {
+    spend: call.spend,
+    agent,
+    messages: parseConversation(call.body, agent.input),
   };
-  const work = async (): Promise<void> => {
-    const run = await answer(input, reservation, onText);
-    await send({ type: run.status === 200 ? "done" : "error", ...run.body });
-    await writer.close().catch(() => undefined);
-    recordResult(context, run, delivery);
+  const reservation = await reserve(input);
+  return deliver(call, async (emit, delivery) => {
+    const gate = new GateStream();
+    const send = deltaEmitter(call, emit, delivery);
+    return answer(
+      input,
+      reservation,
+      send === undefined
+        ? undefined
+        : (text) => {
+            send(gate.push(text));
+          },
+    );
+  });
+};
+
+const quotaFor = (call: Call): QuotaPort => {
+  const { env } = call.context;
+  const name = `quota:${call.tenant.id}:${call.principal.subjectId}`;
+  return env.SUBJECT.get(env.SUBJECT.idFromName(name));
+};
+
+const assertPinned = async (contract: Contract, claimed: string | undefined): Promise<void> => {
+  if (claimed !== undefined && claimed !== (await contractHash(contract))) {
+    throw new Rejection(409, "contract_changed", {
+      message: "This app's tools are out of date. Update the app.",
+    });
+  }
+};
+
+const heldListeners = (agent: ChatAgent, send: ((text: string) => void) | undefined): Listeners => {
+  if (send === undefined) {
+    return {};
+  }
+  const held = createChatStream({
+    holdChars: agent.streamHoldChars,
+    maxChars: agent.input.maxReplyChars,
+  });
+  return {
+    onText: (text) => {
+      send(held.push(text));
+    },
+    onTool: () => {
+      held.tool();
+    },
   };
-  context.ctx.waitUntil(work());
-  return new Response(readable, { status: 200, headers: sseHeaders() });
+};
+
+const statelessResponse = async (call: Call, agent: ChatAgent): Promise<Response> => {
+  const parsed = parseChat(call.body, agent);
+  await assertPinned(parsed.contract, parsed.contractHash);
+  const turn: ChatTurn = {
+    spend: call.spend,
+    agent,
+    principal: call.principal,
+    contract: parsed.contract,
+    quota: quotaFor(call),
+    messages: parsed.messages,
+    context: parsed.context,
+    toolRounds: parsed.toolRounds,
+  };
+  if (!wantsStream(call.context.request)) {
+    const run = await chatRound(turn, {});
+    recordFinished({
+      context: call.context,
+      tenantId: call.tenant.id,
+      run,
+      delivery: { streamed: false, ttftMs: null },
+    });
+    return json(run.body, run.status);
+  }
+  return deliver(call, async (emit, delivery) =>
+    chatRound(turn, heldListeners(agent, deltaEmitter(call, emit, delivery))),
+  );
+};
+
+const storedResponse = async (call: Call, agent: ChatAgent): Promise<Response> => {
+  const { env } = call.context;
+  const parsed = parseStoredTurn(call.body, agent);
+  await assertPinned(parsed.contract, parsed.contractHash);
+  const sessionId = parsed.sessionId ?? crypto.randomUUID();
+  const store = sessionPort(sessionStub(env, call.tenant.id, sessionId));
+  return deliver(call, async (emit, delivery) => {
+    const send = deltaEmitter(call, emit, delivery);
+    const run = await runSessionTurn({
+      base: {
+        spend: call.spend,
+        agent,
+        principal: call.principal,
+        contract: parsed.contract,
+        quota: quotaFor(call),
+        context: parsed.context,
+      },
+      store,
+      input: parsed.input,
+      tools: toolRuntimeFor(call.context, call.tenant, call.principal),
+      listenersForRound: () => heldListeners(agent, send),
+    });
+    return { ...run, body: { sessionId, ...run.body } };
+  });
 };
 
 const respond = async (context: RequestContext, tenant: Tenant): Promise<Response> => {
-  const input = await prepare(context, tenant);
-  const reservation = await reserve(input);
-  if (wantsStream(context.request)) {
-    return streamAnswer(context, input, reservation);
+  const rawBody = new Uint8Array(await context.request.arrayBuffer());
+  const principal = await authenticate(context, tenant, rawBody);
+  const call: Call = {
+    context,
+    tenant,
+    principal,
+    spend: spendFor(context, tenant, principal),
+    body: new TextDecoder().decode(rawBody),
+  };
+  const { agent } = tenant;
+  if (agent.kind === "gated") {
+    return gatedResponse(call, agent);
   }
-  const run = await answer(input, reservation, undefined);
-  recordResult(context, run, { streamed: false, ttftMs: null });
-  return json(run.body, run.status);
+  return agent.state === "stored" ? storedResponse(call, agent) : statelessResponse(call, agent);
 };
 
-const rejected = (context: RequestContext, tenant: Tenant, rejection: Rejection): Response => {
-  recordRun(context.env, context.ctx, {
-    ...baseEvent(context, tenant.id, false),
-    outcome: rejection.code,
-    status: rejection.status,
-  });
+export const rejected = (
+  context: RequestContext,
+  tenant: Tenant,
+  rejection: Rejection,
+): Response => {
+  recordRejected(context, tenant.id, rejection);
   const response = rejectionResponse(rejection);
   return rejection.code === "origin"
     ? response

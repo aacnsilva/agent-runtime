@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { limitsOf } from "../agent/run";
+import { limitsOf } from "../agent/spend";
 import type { Env } from "../env";
 import { json, Rejection } from "../http/respond";
 import type { Window } from "../observability/aggregate";
@@ -8,7 +8,9 @@ import { summarize } from "../observability/aggregate";
 import { listTenants, saveTenant } from "../tenants/registry";
 import type { Tenant } from "../tenants/schema";
 import { tenantSchema } from "../tenants/schema";
+import { contractHash } from "../tools/contract-hash";
 import { assertAdmin } from "./auth";
+import { handleDocuments, isDocumentPath } from "./handle-documents";
 
 const HOUR_MS = 60 * 60 * 1000;
 const MAX_HOURS = 24 * 31;
@@ -62,7 +64,17 @@ const putTenant = async (request: Request, env: Env, id: string): Promise<Respon
     throw new Rejection(400, "id_mismatch");
   }
   await saveTenant(env, parsed.data);
-  return json({ ok: true, id }, 200);
+  return json({ ok: true, id, contracts: await contractHashes(parsed.data) }, 200);
+};
+
+const contractHashes = async (tenant: Tenant): Promise<{ version: number; hash: string }[]> => {
+  const contracts = tenant.agent.kind === "chat" ? tenant.agent.contracts : [];
+  return Promise.all(
+    contracts.map(async (contract) => ({
+      version: contract.version,
+      hash: await contractHash(contract),
+    })),
+  );
 };
 
 const listSummaries = async (env: Env): Promise<Response> => {
@@ -78,6 +90,9 @@ const TENANT_PATH = /^\/admin\/api\/tenants\/([a-z0-9-]+)$/;
 export const handleAdminApi = async (request: Request, env: Env): Promise<Response> => {
   await assertAdmin(request, env);
   const { pathname } = new URL(request.url);
+  if (isDocumentPath(pathname)) {
+    return handleDocuments(request, env);
+  }
   const tenantId = TENANT_PATH.exec(pathname)?.[1];
   if (tenantId !== undefined && request.method === "PUT") {
     return putTenant(request, env, tenantId);

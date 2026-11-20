@@ -27,7 +27,10 @@ const event = (overrides: Partial<RunEvent>): RunEvent => ({
 describe("aggregate", () => {
   it.each([
     ["answered", { outcome: "answered", status: 200 }],
+    ["answered", { outcome: "tool_round", status: 200 }],
     ["guarded", { outcome: "off_topic", status: 200 }],
+    ["limited", { outcome: "message_cap", status: 429 }],
+    ["rejected", { outcome: "bad_token", status: 401 }],
     ["limited", { outcome: "ip_hour", status: 429 }],
     ["rejected", { outcome: "bad_json", status: 400 }],
     ["failed", { outcome: "upstream", status: 502 }],

@@ -20,7 +20,12 @@ them and must pass before a commit is pushed.
 
 - This repository is public. Real tenant configurations, product names, prompts, prices and
   limits never go in it. Only the fictional example tenant does.
-- The runtime stores codes and measurements, never what was asked or answered.
+- Metrics and logs hold codes and measurements, never what was asked or answered.
+- Conversation text is stored only for tenants whose agent is `stored`, only in that
+  session's own store, and only its owner can read or delete it. A `stateless` tenant's
+  conversations are never stored.
+- A real device attestation, purchase receipt or app identifier never goes in a test. Tests use
+  the synthetic device and store in `tests/apple/device-fixture.ts`.
 
 ## Every feature ships with its verification
 

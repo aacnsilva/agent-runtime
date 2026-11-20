@@ -1,8 +1,9 @@
-import type { ModelId } from "./catalog";
-import type { Completion } from "./provider";
+import type { Breaker } from "./breaker";
+import type { Candidates, ModelId } from "./catalog";
+import type { ModelReply } from "./provider";
 
 export interface Routed {
-  completion: Completion;
+  reply: ModelReply;
   model: ModelId;
   attempts: number;
 }
@@ -11,7 +12,6 @@ export interface RoutingFailureDetail {
   model: ModelId;
   attempts: number;
   billable: boolean;
-  cause: unknown;
 }
 
 export class RoutingFailure extends Error {
@@ -24,26 +24,30 @@ export class RoutingFailure extends Error {
 }
 
 export interface RouteOptions {
-  candidates: readonly [ModelId, ...ModelId[]];
-  call: (model: ModelId) => Promise<Completion>;
+  candidates: Candidates;
+  breaker: Breaker;
+  call: (model: ModelId) => Promise<ModelReply>;
   isBillable: (error: unknown) => boolean;
 }
 
 export const routeWithFallback = async (options: RouteOptions): Promise<Routed> => {
+  const { breaker } = options;
+  const ordered = breaker.order(options.candidates, Date.now());
   let attempts = 0;
-  let last: RoutingFailureDetail | undefined;
-  for (const model of options.candidates) {
+  let last: RoutingFailureDetail = { model: ordered[0], attempts, billable: false };
+  for (const model of ordered) {
     attempts += 1;
     try {
-      return { completion: await options.call(model), model, attempts };
+      const reply = await options.call(model);
+      breaker.succeeded(model);
+      return { reply, model, attempts };
     } catch (cause) {
-      last = { model, attempts, billable: options.isBillable(cause), cause };
+      breaker.failed(model, Date.now());
+      last = { model, attempts, billable: options.isBillable(cause) };
       if (last.billable) {
         break;
       }
     }
   }
-  throw new RoutingFailure(
-    last ?? { model: options.candidates[0], attempts, billable: false, cause: undefined },
-  );
+  throw new RoutingFailure(last);
 };

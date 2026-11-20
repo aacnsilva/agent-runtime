@@ -1,4 +1,4 @@
-import { limitsOf } from "../agent/run";
+import { limitsOf } from "../agent/spend";
 import { corsHeaders, withHeaders } from "../http/cors";
 import { json } from "../http/respond";
 import { loadTenant } from "../tenants/registry";

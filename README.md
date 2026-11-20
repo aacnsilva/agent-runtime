@@ -2,18 +2,20 @@
 
 A multi-tenant agent runtime, built to learn how each module works and to reuse across projects.
 
-It is TypeScript on Cloudflare Workers, with Durable Objects for state. The first slice is built: an anonymous question-and-answer tenant, end to end. The rest of the design below is not built yet.
+It is TypeScript on Cloudflare Workers, with Durable Objects for state. Everything runs and is tested locally; nothing here has been deployed or run against a real model provider yet.
 
 ## Status
 
-| Part          | Built                                                                                                         | Not yet                                                                                     |
-| ------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Gateway       | Tenant routing, anonymous authentication by allowed origin, CORS, input validation, error shapes, admin token | Device attestation and account-token authenticators, entitlement and plans, stored sessions |
-| Quota         | Per-network limits, a monthly pool per tenant in EUR, reserve before the run and settle after                 | Message caps per subject                                                                    |
-| LLM routing   | Capability tiers, a provider adapter for Anthropic, fallback before any text is written, cost metering        | Circuit breakers, a second provider                                                         |
-| Agent         | One model call with a topic gate: structured reply, canned refusals per language, streaming                   | The tool loop, client-run tools, the tools registry                                         |
-| Observability | One record per request (codes and measurements only), aggregates, a dashboard                                 | Tracing, alerts                                                                             |
-| RAG           |                                                                                                               | All of it                                                                                   |
+| Part          | Built                                                                                                                                                                                       | Not yet                                                       |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| Gateway       | Tenant routing, three authenticators (anonymous by allowed origin, signed account token, attested device with a store purchase), plans and entitlement, CORS, input validation, admin token | Per-user admin accounts                                       |
+| Quota         | Per-network limits, a monthly pool per tenant in EUR with reserve and settle, monthly messages per subject by plan                                                                          | Metering embedding calls                                      |
+| LLM routing   | Capability tiers, a provider adapter for Anthropic, fallback before any text is written, a circuit breaker per model, cost metering                                                         | A second provider                                             |
+| Agents        | A gated question-and-answer agent, and a chat agent with tools, in stateless or stored mode                                                                                                 | Runtime-issued approval prompts                               |
+| Tools         | Contracts pinned by hash, tools that run on the client, read-only fetch tools behind an egress allowlist, knowledge search                                                                  | Code-mode sandbox, tools with side effects run by the runtime |
+| Sessions      | Stored conversations with ownership, a transcript, deletion, and a tool loop with a round limit                                                                                             |                                                               |
+| Knowledge     | Per-tenant store, chunking, keyword and vector ranking, visibility per plan, document management                                                                                            | Reranking, very large corpora                                 |
+| Observability | One record per request (codes and measurements only), aggregates, a dashboard                                                                                                               | Tracing, alerts                                               |
 
 ## Run it locally
 
@@ -47,15 +49,37 @@ curl -X PUT http://localhost:8787/admin/api/tenants/demo \
 
 ## API
 
-| Route                        | What it does                                                                                                                                                                                                                 |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /v1/tenants/:id/runs`  | Body `{ "messages": [{ "role": "user", "content": "..." }] }`. Answers `{ "onTopic", "answer" }` as JSON, or as server-sent events (`delta`, then one `done` or `error`) when the request sends `Accept: text/event-stream`. |
-| `GET /v1/tenants/:id/status` | `{ "accepting": true }` while the tenant's monthly pool has room.                                                                                                                                                            |
-| `PUT /admin/api/tenants/:id` | Create or replace a tenant. Needs the admin token.                                                                                                                                                                           |
-| `GET /admin/api/metrics`     | Aggregates for the dashboard. Needs the admin token.                                                                                                                                                                         |
-| `GET /admin`                 | The dashboard.                                                                                                                                                                                                               |
+| Route                                                                   | What it does                                                                                                                                                                                            |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /v1/tenants/:id/runs`                                             | Run the tenant's agent. The body depends on the agent kind (below). Answers as JSON, or as server-sent events (`delta`, then one `done` or `error`) when the request sends `Accept: text/event-stream`. |
+| `GET /v1/tenants/:id/status`                                            | `{ "accepting": true }` while the tenant's monthly pool has room.                                                                                                                                       |
+| `GET` / `DELETE /v1/tenants/:id/sessions/:sessionId`                    | Read the transcript of a stored session, or delete it. Owner only.                                                                                                                                      |
+| `POST /v1/tenants/:id/attest/challenge`, `/attest/key`                  | Enroll a device key for a tenant that authenticates attested devices.                                                                                                                                   |
+| `PUT /admin/api/tenants/:id`                                            | Create or replace a tenant. Returns the hash of each tool contract.                                                                                                                                     |
+| `GET` / `PUT` / `DELETE /admin/api/tenants/:id/documents[/:documentId]` | Manage a tenant's knowledge documents.                                                                                                                                                                  |
+| `GET /admin/api/metrics`                                                | Aggregates for the dashboard.                                                                                                                                                                           |
+| `GET /admin`                                                            | The dashboard.                                                                                                                                                                                          |
 
-Errors are `{ "error": "<code>" }`, with a `message` and `retryAfterSeconds` where a person can act on them. Every response carries `x-request-id`.
+Admin routes need the admin token. Errors are `{ "error": "<code>" }`, with a `message` and `retryAfterSeconds` where a person can act on them. Every response carries `x-request-id`.
+
+### Request bodies
+
+| Agent           | Body                                                                                                                                    | Reply                                               |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| Gated           | `{ "messages": [{ "role": "user", "content": "..." }] }`                                                                                | `{ "onTopic", "answer" }`                           |
+| Chat, stateless | `{ "contractVersion", "context", "messages" }`, where the client sends the whole conversation including tool calls and results          | `{ "stopReason", "content", "quota" }`              |
+| Chat, stored    | `{ "contractVersion", "context", "sessionId"?, "message" }`, or `"toolResults"` in place of `"message"` to answer a pending client tool | `{ "sessionId", "stopReason", "content", "quota" }` |
+
+A chat client may send `contractHash`; the runtime refuses the request if the tenant's tools no longer match it.
+
+### Tenants
+
+A tenant is one JSON document, validated by `src/tenants/schema.ts`. Two fictional examples show both shapes:
+
+- `examples/tenants/demo.tenant.json`: anonymous callers, a gated agent.
+- `examples/tenants/tutor.tenant.json`: signed account tokens, two plans, stored sessions, a fetch tool, knowledge search and a client tool.
+
+Real tenants live with their products, never in this repository.
 
 ## Working in this repository
 

@@ -20,7 +20,7 @@ export const euroToNano = (euros: number): number => Math.round(euros * 1_000_00
 export const nanoToEuro = (nano: number): number => nano / 1_000_000_000;
 
 export const costNanoEur = (usage: Usage, pricing: Pricing): number => {
-  const prices = MODELS[pricing.model];
+  const { prices } = MODELS[pricing.model];
   const promptTokens = usage.input + usage.cacheWrite + usage.cacheRead;
   const multiplier = promptTokens > LONG_PROMPT_TOKENS ? prices.longPromptMultiplier : 1;
   const nanoUsd =
