@@ -24,4 +24,19 @@
     },
     { "tag": "v2", "new_sqlite_classes": ["ModelHealth"] },
   ],
+  "env": {
+    "dev": {
+      "name": "agent-runtime-dev",
+      "durable_objects": {
+        "bindings": [
+          { "name": "LEDGER", "class_name": "Ledger" },
+          { "name": "REGISTRY", "class_name": "Registry" },
+          { "name": "METRICS", "class_name": "Metrics" },
+          { "name": "SUBJECT", "class_name": "Subject" },
+          { "name": "SESSION", "class_name": "Session" },
+          { "name": "KNOWLEDGE", "class_name": "Knowledge" },
+        ],
+      },
+    },
+  },
 }

@@ -47,6 +47,75 @@ curl -X PUT http://localhost:8787/admin/api/tenants/demo \
 
 `npm run check` runs formatting, lint, types, unit tests and the end-to-end tests. The end-to-end tests boot a local worker themselves.
 
+## Deploy
+
+The runtime is one Cloudflare Worker. `wrangler.jsonc` defines two deployments that share the code and nothing else: each has its own stores, its own secrets and its own address.
+
+| Deployment  | Command              | Worker name         |
+| ----------- | -------------------- | ------------------- |
+| Development | `npm run deploy:dev` | `agent-runtime-dev` |
+| Production  | `npm run deploy`     | `agent-runtime`     |
+
+You need a Cloudflare account. Log in once:
+
+```bash
+npx wrangler login
+```
+
+Deploy development first, and use it for anything unreleased and for eval runs:
+
+```bash
+npm run deploy:dev
+```
+
+Wrangler prints the address, `https://agent-runtime-dev.<your-subdomain>.workers.dev`. The stores are created by the migration in `wrangler.jsonc`; there is no database to set up.
+
+Give the deployment its secrets. Until they exist it is safe but inert: runs answer 503 `unconfigured` and the admin routes answer 503 `admin_unconfigured`.
+
+```bash
+openssl rand -hex 32
+```
+
+```bash
+npx wrangler secret put ADMIN_TOKEN --env dev
+```
+
+```bash
+npx wrangler secret put ANTHROPIC_API_KEY --env dev
+```
+
+`EMBEDDINGS_BASE_URL` and `EMBEDDINGS_API_KEY` are secrets too, needed only when a tenant uses vector search.
+
+Check it, then add a tenant from `/admin/tenants` or with the admin API:
+
+```bash
+curl https://agent-runtime-dev.<your-subdomain>.workers.dev/health
+```
+
+Production is the same without `--env dev`:
+
+```bash
+npm run deploy
+```
+
+```bash
+npx wrangler secret put ADMIN_TOKEN
+```
+
+```bash
+npx wrangler secret put ANTHROPIC_API_KEY
+```
+
+Before real traffic:
+
+- **Use a different admin token and a different model-provider key for each deployment.** Give each key its own spend limit at the provider, so there is a hard stop outside the runtime as well as the tenant pools inside it.
+- **Restrict `/admin`.** The admin pages and API are protected by the admin token alone. Put an access policy in front of `/admin*`, such as Cloudflare Access, so only the people who should can reach them at all.
+- **Keep eval runs on development.** A tenant with an `evals` block lets whoever holds its secret spend from its pool.
+- **A tenant belongs to one deployment.** Push a product's test tenant to development and its real one to production; nothing is copied between them.
+- **Watch CPU time.** The free Workers plan allows 10 ms of CPU per request. Verifying a device attestation or a store purchase has not been measured against that; the paid plan removes the concern.
+
+Deploys are manual. Nothing deploys from CI.
+
 ## API
 
 | Route                                                                     | What it does                                                                                                                                                                                            |
