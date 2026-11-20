@@ -2,7 +2,64 @@
 
 A multi-tenant agent runtime, built to learn how each module works and to reuse across projects.
 
-This repository currently holds the system design only. No code has been written yet.
+It is TypeScript on Cloudflare Workers, with Durable Objects for state. The first slice is built: an anonymous question-and-answer tenant, end to end. The rest of the design below is not built yet.
+
+## Status
+
+| Part          | Built                                                                                                         | Not yet                                                                                     |
+| ------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Gateway       | Tenant routing, anonymous authentication by allowed origin, CORS, input validation, error shapes, admin token | Device attestation and account-token authenticators, entitlement and plans, stored sessions |
+| Quota         | Per-network limits, a monthly pool per tenant in EUR, reserve before the run and settle after                 | Message caps per subject                                                                    |
+| LLM routing   | Capability tiers, a provider adapter for Anthropic, fallback before any text is written, cost metering        | Circuit breakers, a second provider                                                         |
+| Agent         | One model call with a topic gate: structured reply, canned refusals per language, streaming                   | The tool loop, client-run tools, the tools registry                                         |
+| Observability | One record per request (codes and measurements only), aggregates, a dashboard                                 | Tracing, alerts                                                                             |
+| RAG           |                                                                                                               | All of it                                                                                   |
+
+## Run it locally
+
+You need Node 22.12 or later.
+
+```bash
+npm install
+```
+
+```bash
+npm run demo
+```
+
+`npm run demo` starts a local worker with a fake model provider, loads the example tenant, sends a few requests, and prints the dashboard URL and its admin token. It needs no API key.
+
+To talk to a real model, copy `.dev.vars.example` to `.dev.vars`, put a real key and a long random admin token in it, and run the worker:
+
+```bash
+npm run dev
+```
+
+Then load a tenant (the example is fictional; real tenants live with their products, never in this repository):
+
+```bash
+curl -X PUT http://localhost:8787/admin/api/tenants/demo \
+  -H "authorization: Bearer $ADMIN_TOKEN" -H "content-type: application/json" \
+  --data @examples/tenants/demo.tenant.json
+```
+
+`npm run check` runs formatting, lint, types, unit tests and the end-to-end tests. The end-to-end tests boot a local worker themselves.
+
+## API
+
+| Route                        | What it does                                                                                                                                                                                                                 |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /v1/tenants/:id/runs`  | Body `{ "messages": [{ "role": "user", "content": "..." }] }`. Answers `{ "onTopic", "answer" }` as JSON, or as server-sent events (`delta`, then one `done` or `error`) when the request sends `Accept: text/event-stream`. |
+| `GET /v1/tenants/:id/status` | `{ "accepting": true }` while the tenant's monthly pool has room.                                                                                                                                                            |
+| `PUT /admin/api/tenants/:id` | Create or replace a tenant. Needs the admin token.                                                                                                                                                                           |
+| `GET /admin/api/metrics`     | Aggregates for the dashboard. Needs the admin token.                                                                                                                                                                         |
+| `GET /admin`                 | The dashboard.                                                                                                                                                                                                               |
+
+Errors are `{ "error": "<code>" }`, with a `message` and `retryAfterSeconds` where a person can act on them. Every response carries `x-request-id`.
+
+## Working in this repository
+
+`CLAUDE.md` has the ground rules: no comments in code, strict compiler and lint settings, and every feature ships with unit tests, an end-to-end spec and a verification skill in `.claude/skills/`.
 
 ## System design
 

@@ -1,0 +1,872 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent runtime</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --plane: #f9f9f7;
+        --surface: #fcfcfb;
+        --ink: #0b0b0b;
+        --ink-2: #52514e;
+        --muted: #898781;
+        --grid: #e1e0d9;
+        --axis: #c3c2b7;
+        --border: rgba(11, 11, 11, 0.1);
+        --wash: rgba(11, 11, 11, 0.05);
+        --s1: #2a78d6;
+        --s2: #eb6834;
+        --s3: #1baf7a;
+        --s4: #eda100;
+        --s5: #e87ba4;
+        --critical: #d03b3b;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --plane: #0d0d0d;
+          --surface: #1a1a19;
+          --ink: #f0efec;
+          --ink-2: #c3c2b7;
+          --muted: #898781;
+          --grid: #2c2c2a;
+          --axis: #383835;
+          --border: rgba(255, 255, 255, 0.1);
+          --wash: rgba(255, 255, 255, 0.06);
+          --s1: #3987e5;
+          --s2: #d95926;
+          --s3: #199e70;
+          --s4: #c98500;
+          --s5: #d55181;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--plane);
+        color: var(--ink);
+        font:
+          14px/1.45 system-ui,
+          -apple-system,
+          "Segoe UI",
+          sans-serif;
+      }
+      main {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 20px 16px 48px;
+      }
+      header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 4px 12px;
+        margin-bottom: 12px;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0;
+      }
+      h2 {
+        font-size: 14px;
+        margin: 0 0 2px;
+      }
+      .note {
+        color: var(--ink-2);
+        margin: 0;
+      }
+      .filters {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin: 12px 0 16px;
+      }
+      select,
+      button,
+      input {
+        font: inherit;
+        color: inherit;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 6px 10px;
+        min-height: 34px;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:hover {
+        background: var(--wash);
+      }
+      button[aria-pressed="true"] {
+        background: var(--ink);
+        color: var(--surface);
+        border-color: var(--ink);
+      }
+      :focus-visible {
+        outline: 2px solid var(--s1);
+        outline-offset: 2px;
+      }
+      .ranges {
+        display: flex;
+        gap: 4px;
+      }
+      .spacer {
+        flex: 1;
+      }
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 14px 16px;
+      }
+      .tiles {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .tile .label {
+        color: var(--ink-2);
+      }
+      .tile .value {
+        font-size: 26px;
+        font-weight: 600;
+        line-height: 1.2;
+      }
+      .tile .sub {
+        color: var(--muted);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 14px;
+        margin: 6px 0 4px;
+        color: var(--ink-2);
+      }
+      .key {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+        margin-right: 6px;
+      }
+      .key.line {
+        height: 2px;
+        width: 14px;
+        border-radius: 1px;
+        vertical-align: middle;
+      }
+      svg {
+        display: block;
+        width: 100%;
+        height: auto;
+        overflow: visible;
+      }
+      svg text {
+        fill: var(--muted);
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+      }
+      .scroll {
+        overflow-x: auto;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-variant-numeric: tabular-nums;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 6px 10px 6px 0;
+        border-bottom: 1px solid var(--grid);
+        white-space: nowrap;
+      }
+      th {
+        color: var(--ink-2);
+        font-weight: 500;
+      }
+      td.num,
+      th.num {
+        text-align: right;
+      }
+      .meter {
+        display: flex;
+        width: 88px;
+        height: 8px;
+        gap: 2px;
+        background: var(--grid);
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      .meter span {
+        height: 100%;
+      }
+      .empty {
+        color: var(--ink-2);
+        padding: 28px 0;
+        text-align: center;
+      }
+      #tooltip {
+        position: fixed;
+        pointer-events: none;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px 10px;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+        font-variant-numeric: tabular-nums;
+        z-index: 10;
+        min-width: 150px;
+      }
+      #tooltip .row {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      #tooltip .when {
+        color: var(--ink-2);
+        margin-bottom: 4px;
+      }
+      #signin {
+        max-width: 420px;
+        margin: 12vh auto 0;
+      }
+      #signin form {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+      }
+      #signin input {
+        flex: 1;
+      }
+      .error {
+        color: var(--critical);
+        margin: 8px 0 0;
+      }
+      [hidden] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section id="signin" class="card" hidden>
+        <h1>Agent runtime</h1>
+        <p class="note">Enter the admin token to see the dashboard. It stays in this tab only.</p>
+        <form id="signin-form">
+          <input id="token" type="password" autocomplete="off" aria-label="Admin token" required />
+          <button type="submit">Open</button>
+        </form>
+        <p id="signin-error" class="error" role="alert" hidden></p>
+      </section>
+
+      <div id="app" hidden>
+        <header>
+          <h1>Agent runtime</h1>
+          <p class="note" id="updated" aria-live="polite"></p>
+        </header>
+        <div class="filters">
+          <select id="tenant" aria-label="Tenant"></select>
+          <div class="ranges" id="ranges" role="group" aria-label="Time range"></div>
+          <span class="spacer"></span>
+          <label
+            ><input type="checkbox" id="auto" checked style="min-height: 0" /> Refresh every 10
+            s</label
+          >
+          <button id="refresh" type="button">Refresh</button>
+          <button id="signout" type="button">Sign out</button>
+        </div>
+        <p id="load-error" class="error" role="alert" hidden></p>
+
+        <div class="tiles" id="tiles"></div>
+
+        <div class="grid">
+          <section class="card">
+            <h2>Requests by outcome</h2>
+            <div class="legend" id="outcome-legend"></div>
+            <div id="outcome-chart"></div>
+          </section>
+          <section class="card">
+            <h2>Response time</h2>
+            <div class="legend" id="latency-legend"></div>
+            <div id="latency-chart"></div>
+          </section>
+        </div>
+
+        <div class="grid">
+          <section class="card">
+            <h2>Monthly pools</h2>
+            <p class="note">
+              Spent and reserved against each tenant's pool for the current UTC month.
+            </p>
+            <div class="scroll"><table id="pools"></table></div>
+          </section>
+          <section class="card">
+            <h2>Outcomes</h2>
+            <p class="note">Every way a request ended in this window.</p>
+            <div class="scroll"><table id="outcomes"></table></div>
+          </section>
+        </div>
+
+        <section class="card">
+          <h2>Recent requests</h2>
+          <p class="note">Codes and measurements only. Questions and answers are never stored.</p>
+          <div class="scroll"><table id="recent"></table></div>
+        </section>
+      </div>
+      <div id="tooltip" hidden></div>
+    </main>
+
+    <script>
+      const SVG = "http://www.w3.org/2000/svg";
+      const RANGES = [
+        ["1 h", 1],
+        ["6 h", 6],
+        ["24 h", 24],
+        ["7 d", 168],
+        ["30 d", 720],
+      ];
+      const CLASSES = [
+        ["answered", "Answered", "var(--s1)"],
+        ["guarded", "Guarded", "var(--s2)"],
+        ["limited", "Limited", "var(--s3)"],
+        ["rejected", "Rejected", "var(--s4)"],
+        ["failed", "Failed", "var(--s5)"],
+      ];
+      const LINES = [
+        ["latencyP50", "Median", "var(--s1)"],
+        ["latencyP95", "95th percentile", "var(--s2)"],
+        ["ttftP50", "First text, median", "var(--s3)"],
+      ];
+      const BOX = { width: 720, height: 230, left: 46, right: 10, top: 10, bottom: 24 };
+      const state = { hours: 24, tenant: "", timer: 0 };
+      const $ = (id) => document.getElementById(id);
+      const tooltip = $("tooltip");
+
+      const el = (tag, attributes = {}, text) => {
+        const node = document.createElement(tag);
+        for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
+        if (text !== undefined) node.textContent = text;
+        return node;
+      };
+      const svgEl = (tag, attributes = {}, text) => {
+        const node = document.createElementNS(SVG, tag);
+        for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
+        if (text !== undefined) node.textContent = text;
+        return node;
+      };
+
+      const whole = new Intl.NumberFormat("en");
+      const ms = (value) =>
+        value === null
+          ? "–"
+          : value >= 1000
+            ? `${(value / 1000).toFixed(2)} s`
+            : `${whole.format(Math.round(value))} ms`;
+      const percent = (value) =>
+        value === null ? "–" : `${(value * 100).toFixed(value >= 0.995 || value === 0 ? 0 : 1)}%`;
+      const euros = (nano) => {
+        const value = nano / 1e9;
+        const digits = value === 0 || value >= 100 ? 2 : value >= 1 ? 2 : value >= 0.01 ? 4 : 6;
+        return `€${value.toFixed(digits)}`;
+      };
+      const clock = (time, bucketMs) =>
+        new Date(time).toLocaleString(
+          "en",
+          bucketMs >= 86400000
+            ? { month: "short", day: "numeric" }
+            : bucketMs >= 3600000
+              ? { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }
+              : { hour: "2-digit", minute: "2-digit" },
+        );
+
+      const niceMax = (value) => {
+        if (value <= 4) return 4;
+        const power = 10 ** Math.floor(Math.log10(value));
+        const lead = value / power;
+        return (lead <= 1 ? 1 : lead <= 2 ? 2 : lead <= 4 ? 4 : lead <= 5 ? 5 : 10) * power;
+      };
+
+      const showTooltip = (event, when, rows) => {
+        tooltip.replaceChildren(el("div", { class: "when" }, when));
+        for (const [label, value, color, line] of rows) {
+          const row = el("div", { class: "row" });
+          const name = el("span");
+          const key = el("span", { class: line ? "key line" : "key" });
+          key.style.background = color;
+          name.append(key, label);
+          row.append(name, el("strong", {}, value));
+          tooltip.append(row);
+        }
+        tooltip.hidden = false;
+        const { width, height } = tooltip.getBoundingClientRect();
+        const left = Math.min(event.clientX + 14, window.innerWidth - width - 8);
+        const top = Math.max(
+          8,
+          Math.min(event.clientY - height - 10, window.innerHeight - height - 8),
+        );
+        tooltip.style.left = `${Math.max(8, left)}px`;
+        tooltip.style.top = `${top}px`;
+      };
+      const hideTooltip = () => {
+        tooltip.hidden = true;
+      };
+
+      const frame = (max, buckets, bucketMs, format) => {
+        const svg = svgEl("svg", { viewBox: `0 0 ${BOX.width} ${BOX.height}`, role: "img" });
+        const plotW = BOX.width - BOX.left - BOX.right;
+        const plotH = BOX.height - BOX.top - BOX.bottom;
+        const y = (value) => BOX.top + plotH - (value / max) * plotH;
+        const ticks = Number.isInteger(max / 4)
+          ? [0, max / 4, max / 2, (3 * max) / 4, max]
+          : [0, max / 2, max];
+        for (const tick of ticks) {
+          svg.append(
+            svgEl("line", {
+              x1: BOX.left,
+              x2: BOX.width - BOX.right,
+              y1: y(tick),
+              y2: y(tick),
+              stroke: tick === 0 ? "var(--axis)" : "var(--grid)",
+              "stroke-width": 1,
+            }),
+            svgEl("text", { x: BOX.left - 8, y: y(tick) + 4, "text-anchor": "end" }, format(tick)),
+          );
+        }
+        const band = plotW / buckets.length;
+        const marks = [0, Math.floor((buckets.length - 1) / 2), buckets.length - 1];
+        for (const index of new Set(marks)) {
+          const anchor = index === 0 ? "start" : index === buckets.length - 1 ? "end" : "middle";
+          const x =
+            index === 0
+              ? BOX.left
+              : index === buckets.length - 1
+                ? BOX.width - BOX.right
+                : BOX.left + band * (index + 0.5);
+          svg.append(
+            svgEl(
+              "text",
+              { x, y: BOX.height - 6, "text-anchor": anchor },
+              clock(buckets[index].start, bucketMs),
+            ),
+          );
+        }
+        return { svg, y, band, plotH };
+      };
+
+      const roundedTop = (x, yTop, width, height) => {
+        const radius = Math.min(4, height, width / 2);
+        return `M${x},${yTop + height}V${yTop + radius}Q${x},${yTop} ${x + radius},${yTop}H${x + width - radius}Q${x + width},${yTop} ${x + width},${yTop + radius}V${yTop + height}Z`;
+      };
+
+      const drawOutcomes = (summary) => {
+        const host = $("outcome-chart");
+        const totals = summary.buckets.map((bucket) =>
+          CLASSES.reduce((sum, [id]) => sum + bucket.counts[id], 0),
+        );
+        if (Math.max(...totals) === 0)
+          return host.replaceChildren(
+            el(
+              "p",
+              { class: "empty" },
+              "No requests in this window yet. Send one and it shows up here.",
+            ),
+          );
+        const max = niceMax(Math.max(...totals));
+        const { svg, y, band } = frame(max, summary.buckets, summary.bucketMs, (tick) =>
+          whole.format(tick),
+        );
+        const width = Math.max(2, Math.min(24, band - 2));
+        summary.buckets.forEach((bucket, index) => {
+          const x = BOX.left + band * index + (band - width) / 2;
+          const present = CLASSES.filter(([id]) => bucket.counts[id] > 0);
+          let below = 0;
+          present.forEach(([id, , color], position) => {
+            const count = bucket.counts[id];
+            const yTop = y(below + count);
+            const height = Math.max(1, y(below) - yTop - (position === 0 ? 0 : 2));
+            const isTop = position === present.length - 1;
+            svg.append(
+              isTop
+                ? svgEl("path", { d: roundedTop(x, yTop, width, height), fill: color })
+                : svgEl("rect", { x, y: yTop, width, height, fill: color }),
+            );
+            below += count;
+          });
+          const hit = svgEl("rect", {
+            x: BOX.left + band * index,
+            y: BOX.top,
+            width: band,
+            height: BOX.height - BOX.top - BOX.bottom,
+            fill: "transparent",
+            tabindex: totals[index] > 0 ? 0 : -1,
+          });
+          const rows = () =>
+            CLASSES.map(([id, label, color]) => [
+              label,
+              whole.format(bucket.counts[id]),
+              color,
+              false,
+            ]);
+          hit.addEventListener("pointermove", (event) =>
+            showTooltip(event, clock(bucket.start, summary.bucketMs), rows()),
+          );
+          hit.addEventListener("pointerleave", hideTooltip);
+          svg.append(hit);
+        });
+        svg.setAttribute(
+          "aria-label",
+          `Requests per interval by outcome, ${whole.format(summary.totals.requests)} in total`,
+        );
+        host.replaceChildren(svg);
+      };
+
+      const drawLatency = (summary) => {
+        const host = $("latency-chart");
+        const values = summary.buckets.flatMap((bucket) =>
+          LINES.map(([id]) => bucket[id]).filter((value) => value !== null),
+        );
+        if (values.length === 0)
+          return host.replaceChildren(
+            el("p", { class: "empty" }, "No completed answers in this window yet."),
+          );
+        const max = niceMax(Math.max(...values));
+        const { svg, y, band } = frame(max, summary.buckets, summary.bucketMs, (tick) => ms(tick));
+        const x = (index) => BOX.left + band * (index + 0.5);
+        for (const [id, , color] of LINES) {
+          let path = "";
+          let open = false;
+          summary.buckets.forEach((bucket, index) => {
+            const value = bucket[id];
+            if (value === null) return void (open = false);
+            path += `${open ? "L" : "M"}${x(index)},${y(value)}`;
+            const alone =
+              (summary.buckets[index - 1]?.[id] ?? null) === null &&
+              (summary.buckets[index + 1]?.[id] ?? null) === null;
+            if (alone)
+              svg.append(
+                svgEl("circle", {
+                  cx: x(index),
+                  cy: y(value),
+                  r: 4,
+                  fill: color,
+                  stroke: "var(--surface)",
+                  "stroke-width": 2,
+                }),
+              );
+            open = true;
+          });
+          svg.append(
+            svgEl("path", {
+              d: path,
+              fill: "none",
+              stroke: color,
+              "stroke-width": 2,
+              "stroke-linejoin": "round",
+              "stroke-linecap": "round",
+            }),
+          );
+        }
+        const cross = svgEl("line", {
+          y1: BOX.top,
+          y2: BOX.height - BOX.bottom,
+          stroke: "var(--axis)",
+          "stroke-width": 1,
+          visibility: "hidden",
+        });
+        const hit = svgEl("rect", {
+          x: BOX.left,
+          y: BOX.top,
+          width: BOX.width - BOX.left - BOX.right,
+          height: BOX.height - BOX.top - BOX.bottom,
+          fill: "transparent",
+        });
+        hit.addEventListener("pointermove", (event) => {
+          const bounds = svg.getBoundingClientRect();
+          const position = ((event.clientX - bounds.left) / bounds.width) * BOX.width;
+          const index = Math.max(
+            0,
+            Math.min(summary.buckets.length - 1, Math.floor((position - BOX.left) / band)),
+          );
+          const bucket = summary.buckets[index];
+          cross.setAttribute("x1", x(index));
+          cross.setAttribute("x2", x(index));
+          cross.setAttribute("visibility", "visible");
+          showTooltip(
+            event,
+            clock(bucket.start, summary.bucketMs),
+            LINES.map(([id, label, color]) => [label, ms(bucket[id]), color, true]),
+          );
+        });
+        hit.addEventListener("pointerleave", () => {
+          cross.setAttribute("visibility", "hidden");
+          hideTooltip();
+        });
+        svg.append(cross, hit);
+        svg.setAttribute(
+          "aria-label",
+          `Response time per interval; median ${ms(summary.totals.latencyP50)}, 95th percentile ${ms(summary.totals.latencyP95)}`,
+        );
+        host.replaceChildren(svg);
+      };
+
+      const legend = (host, items, line) => {
+        host.replaceChildren(
+          ...items.map(([, label, color]) => {
+            const item = el("span");
+            const key = el("span", { class: line ? "key line" : "key" });
+            key.style.background = color;
+            item.append(key, label);
+            return item;
+          }),
+        );
+      };
+
+      const table = (host, columns, rows, emptyText) => {
+        const head = el("tr");
+        for (const [label, numeric] of columns)
+          head.append(el("th", numeric ? { class: "num" } : {}, label));
+        const body = rows.map((cells) => {
+          const row = el("tr");
+          cells.forEach((cell, index) => {
+            const td = el("td", columns[index][1] ? { class: "num" } : {});
+            td.append(cell instanceof Node ? cell : String(cell));
+            row.append(td);
+          });
+          return row;
+        });
+        if (rows.length === 0) {
+          const row = el("tr");
+          row.append(el("td", { colspan: columns.length, class: "empty" }, emptyText));
+          body.push(row);
+        }
+        host.replaceChildren(head, ...body);
+      };
+
+      const meter = (pool) => {
+        const bar = el("div", {
+          class: "meter",
+          role: "img",
+          "aria-label": `${percent(pool.poolNanoEur === 0 ? 0 : pool.spentNanoEur / pool.poolNanoEur)} of the pool spent`,
+        });
+        const share = (value) =>
+          `${pool.poolNanoEur === 0 ? 0 : Math.min(100, (value / pool.poolNanoEur) * 100)}%`;
+        const spent = el("span");
+        spent.style.cssText = `width:${share(pool.spentNanoEur)};background:var(--s1)`;
+        const reserved = el("span");
+        reserved.style.cssText = `width:${share(pool.reservedNanoEur)};background:var(--s2)`;
+        bar.append(spent, reserved);
+        return bar;
+      };
+
+      const tile = (label, value, sub) => {
+        const card = el("div", { class: "card tile" });
+        card.append(
+          el("div", { class: "label" }, label),
+          el("div", { class: "value" }, value),
+          el("div", { class: "sub" }, sub),
+        );
+        return card;
+      };
+
+      const render = (summary) => {
+        const { totals } = summary;
+        const shown =
+          state.tenant === ""
+            ? summary.tenants
+            : summary.tenants.filter((entry) => entry.id === state.tenant);
+        const spent = shown.reduce((sum, entry) => sum + entry.pool.spentNanoEur, 0);
+        const pool = shown.reduce((sum, entry) => sum + entry.pool.poolNanoEur, 0);
+        $("tiles").replaceChildren(
+          tile(
+            "Requests",
+            whole.format(totals.requests),
+            `${whole.format(totals.counts.limited + totals.counts.rejected)} refused before the model`,
+          ),
+          tile(
+            "Answered",
+            percent(totals.requests === 0 ? null : totals.counts.answered / totals.requests),
+            `${whole.format(totals.counts.failed)} failed`,
+          ),
+          tile("Response time", ms(totals.latencyP50), `95th percentile ${ms(totals.latencyP95)}`),
+          tile("First text", ms(totals.ttftP50), `95th percentile ${ms(totals.ttftP95)}`),
+          tile(
+            "Cost in window",
+            euros(totals.costNanoEur),
+            `${euros(spent)} of ${euros(pool)} this month`,
+          ),
+          tile("Prompt cache", percent(totals.cacheHitRatio), "of prompt tokens read from cache"),
+        );
+        drawOutcomes(summary);
+        drawLatency(summary);
+        table(
+          $("pools"),
+          [
+            ["Tenant"],
+            ["Tier"],
+            ["Spent", true],
+            ["Reserved", true],
+            ["Pool", true],
+            ["Used"],
+            ["Accepting"],
+          ],
+          shown.map((entry) => [
+            entry.name,
+            entry.tier,
+            euros(entry.pool.spentNanoEur),
+            euros(entry.pool.reservedNanoEur),
+            euros(entry.pool.poolNanoEur),
+            meter(entry.pool),
+            entry.pool.accepting ? "Yes" : "Paused",
+          ]),
+          "No tenants yet. Add one with the admin API.",
+        );
+        table(
+          $("outcomes"),
+          [["Outcome"], ["Requests", true], ["Share", true]],
+          summary.outcomes.map((entry) => [
+            entry.outcome,
+            whole.format(entry.count),
+            percent(entry.count / totals.requests),
+          ]),
+          "Nothing in this window.",
+        );
+        table(
+          $("recent"),
+          [
+            ["Time"],
+            ["Tenant"],
+            ["Outcome"],
+            ["Status", true],
+            ["Model"],
+            ["Response", true],
+            ["First text", true],
+            ["Tokens in", true],
+            ["Cached", true],
+            ["Tokens out", true],
+            ["Cost", true],
+            ["Request"],
+          ],
+          summary.recent.map((event) => [
+            new Date(event.at).toLocaleTimeString("en"),
+            event.tenant,
+            event.outcome,
+            event.status,
+            event.model ?? "–",
+            ms(event.latencyMs),
+            ms(event.ttftMs),
+            whole.format(event.inputTokens),
+            whole.format(event.cacheReadTokens),
+            whole.format(event.outputTokens),
+            euros(event.costNanoEur),
+            event.requestId.slice(0, 8),
+          ]),
+          "Nothing in this window.",
+        );
+        const select = $("tenant");
+        if (select.options.length !== summary.tenants.length + 1) {
+          select.replaceChildren(
+            el("option", { value: "" }, "All tenants"),
+            ...summary.tenants.map((entry) => el("option", { value: entry.id }, entry.name)),
+          );
+          select.value = state.tenant;
+        }
+        $("updated").textContent = `Updated ${new Date().toLocaleTimeString("en")}`;
+      };
+
+      const token = () => sessionStorage.getItem("admin-token") ?? "";
+      const showSignin = (message) => {
+        clearInterval(state.timer);
+        $("app").hidden = true;
+        $("signin").hidden = false;
+        $("signin-error").hidden = message === undefined;
+        $("signin-error").textContent = message ?? "";
+        $("token").focus();
+      };
+
+      const load = async () => {
+        const query = new URLSearchParams({ hours: String(state.hours) });
+        if (state.tenant !== "") query.set("tenant", state.tenant);
+        try {
+          const response = await fetch(`/admin/api/metrics?${query}`, {
+            headers: { authorization: `Bearer ${token()}` },
+          });
+          if (response.status === 401) {
+            sessionStorage.removeItem("admin-token");
+            return showSignin("That token was not accepted.");
+          }
+          if (!response.ok)
+            throw new Error(
+              (await response.json()).message ?? `The server answered ${response.status}.`,
+            );
+          $("signin").hidden = true;
+          $("app").hidden = false;
+          $("load-error").hidden = true;
+          render(await response.json());
+        } catch (error) {
+          $("load-error").hidden = false;
+          $("load-error").textContent =
+            `Could not load metrics. ${error.message} Retrying on the next refresh.`;
+          $("signin").hidden = true;
+          $("app").hidden = false;
+        }
+      };
+
+      const schedule = () => {
+        clearInterval(state.timer);
+        if ($("auto").checked) state.timer = setInterval(load, 10000);
+      };
+
+      $("ranges").replaceChildren(
+        ...RANGES.map(([label, hours]) => {
+          const button = el(
+            "button",
+            { type: "button", "aria-pressed": String(hours === state.hours) },
+            label,
+          );
+          button.addEventListener("click", () => {
+            state.hours = hours;
+            for (const other of $("ranges").children)
+              other.setAttribute("aria-pressed", String(other === button));
+            load();
+          });
+          return button;
+        }),
+      );
+      legend($("outcome-legend"), CLASSES, false);
+      legend($("latency-legend"), LINES, true);
+      $("tenant").addEventListener("change", (event) => {
+        state.tenant = event.target.value;
+        load();
+      });
+      $("refresh").addEventListener("click", load);
+      $("auto").addEventListener("change", schedule);
+      $("signout").addEventListener("click", () => {
+        sessionStorage.removeItem("admin-token");
+        showSignin();
+      });
+      $("signin-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        sessionStorage.setItem("admin-token", $("token").value);
+        $("token").value = "";
+        load().then(schedule);
+      });
+
+      if (token() === "") showSignin();
+      else load().then(schedule);
+    </script>
+  </body>
+</html>

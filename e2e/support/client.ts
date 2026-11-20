@@ -78,12 +78,16 @@ export interface StreamEvent {
   atMs: number;
 }
 
-export const askStream = async (tenant: string, question: string): Promise<StreamEvent[]> => {
+export const askStream = async (
+  tenant: string,
+  question: string,
+  origin: string = ALLOWED_ORIGIN,
+): Promise<StreamEvent[]> => {
   const startedAt = performance.now();
   const response = await postRun(
     tenant,
     { messages: [{ role: "user", content: question }] },
-    { accept: "text/event-stream" },
+    { accept: "text/event-stream", origin },
   );
   if (response.body === null) {
     throw new Error("stream has no body");

@@ -1,1 +1,3 @@
-export const DASHBOARD_HTML = "<!doctype html><title>Agent runtime</title>";
+import page from "./dashboard.html";
+
+export const DASHBOARD_HTML: string = page;
