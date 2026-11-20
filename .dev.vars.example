@@ -1,0 +1,5 @@
+ANTHROPIC_API_KEY=sk-ant-replace-me
+ADMIN_TOKEN=replace-with-a-long-random-string
+# Optional: an OpenAI-compatible embeddings endpoint for knowledge search.
+# EMBEDDINGS_BASE_URL=https://example.com/v1
+# EMBEDDINGS_API_KEY=replace-me

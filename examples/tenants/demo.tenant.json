@@ -1,0 +1,41 @@
+{
+  "id": "demo",
+  "name": "Lumen help desk (example)",
+  "authn": {
+    "kind": "anonymous",
+    "allowedOrigins": ["http://localhost:8080", "http://127.0.0.1:8080"]
+  },
+  "limits": {
+    "ipPerHour": 15,
+    "ipPerDay": 40,
+    "poolEurPerMonth": 5,
+    "usdPerEur": 1.08
+  },
+  "agent": {
+    "kind": "gated",
+    "tier": "fast",
+    "effort": "low",
+    "maxOutputTokens": 1500,
+    "system": "You answer questions about Lumen, a fictional note-taking app used as the example tenant of this runtime.\n\nRules:\n- Use only the product notes below. If they do not say it, say you do not know.\n- Reply in the language of the latest question: English or Spanish.\n- Set on_topic to true only when the question is about Lumen.\n- When on_topic is false, answer is one short refusal and nothing else.\n- Plain sentences, under 120 words.\n- Reply with on_topic and answer.\n\n# Product notes\n\nLumen keeps notes as plain text files on the device. Sync is optional and end-to-end encrypted. The free plan allows 3 notebooks; Lumen Plus costs 4 EUR a month and removes the limit. Lumen has no web version. Notes can be exported as Markdown.",
+    "reminder": "Answer only if the latest question is about Lumen. Otherwise set on_topic to false.",
+    "input": {
+      "maxMessages": 6,
+      "maxUserChars": 800,
+      "maxAssistantChars": 1500,
+      "maxBodyBytes": 12000
+    },
+    "gate": {
+      "fallback": {
+        "refusal": "I only answer questions about Lumen, the note-taking app.",
+        "unreadable": "I could not read that reply. Ask again in one sentence."
+      },
+      "locales": [
+        {
+          "pattern": "[áéíóúñ¿¡]|\\b(cómo|cuánto|notas|precio|puedo)\\b",
+          "refusal": "Solo respondo preguntas sobre Lumen, la app de notas.",
+          "unreadable": "No pude leer esa respuesta. Pregunta de nuevo en una frase."
+        }
+      ]
+    }
+  }
+}

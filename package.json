@@ -1,0 +1,50 @@
+{
+  "name": "agent-runtime",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "wrangler dev",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix --max-warnings 0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc -p tsconfig.json && tsc -p e2e/tsconfig.json && tsc -p evals/tsconfig.json",
+    "test": "vitest run",
+    "e2e": "vitest run --config e2e/vitest.config.ts",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run e2e",
+    "prepare": "husky",
+    "demo": "node --experimental-strip-types e2e/demo.ts",
+    "evals": "node --experimental-strip-types evals/run.ts"
+  },
+  "lint-staged": {
+    "*.{ts,js}": [
+      "eslint --fix --max-warnings 0",
+      "prettier --write"
+    ],
+    "*.{json,jsonc,md,yml,yaml}": "prettier --write"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.11.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261120.1",
+    "@eslint/js": "^10.0.1",
+    "@tsconfig/strictest": "^2.0.9",
+    "@types/node": "^26.6.6",
+    "eslint": "^10.15.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-simple-import-sort": "^14.0.0",
+    "globals": "^17.14.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.6.1",
+    "prettier": "^3.10.1",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.73.0",
+    "vitest": "^5.1.1",
+    "wrangler": "^4.165.0"
+  }
+}
