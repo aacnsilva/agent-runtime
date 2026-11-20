@@ -1,4 +1,4 @@
-import { DASHBOARD_HTML } from "./admin/dashboard";
+import { DASHBOARD_HTML, TENANTS_HTML } from "./admin/dashboard";
 import { handleAdminApi } from "./admin/handle-admin";
 import type { Env } from "./env";
 import type { RequestContext } from "./gateway/context";
@@ -83,6 +83,9 @@ const route = async (context: RequestContext): Promise<Response> => {
   }
   if (pathname === "/admin" || pathname === "/admin/") {
     return html(DASHBOARD_HTML);
+  }
+  if (pathname === "/admin/tenants") {
+    return html(TENANTS_HTML);
   }
   if (pathname.startsWith("/admin/api/")) {
     return handleAdminApi(context.request, context.env);

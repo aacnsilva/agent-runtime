@@ -256,6 +256,24 @@
         color: var(--critical);
         margin: 8px 0 0;
       }
+      .pages {
+        display: flex;
+        gap: 4px;
+      }
+      .pages a {
+        color: var(--ink-2);
+        text-decoration: none;
+        padding: 4px 10px;
+        border-radius: 8px;
+      }
+      .pages a:hover {
+        background: var(--wash);
+      }
+      .pages a[aria-current="page"] {
+        color: var(--ink);
+        background: var(--wash);
+        font-weight: 600;
+      }
       [hidden] {
         display: none !important;
       }
@@ -276,6 +294,10 @@
       <div id="app" hidden>
         <header>
           <h1>Agent runtime</h1>
+          <nav class="pages" aria-label="Admin pages">
+            <a href="/admin" aria-current="page">Dashboard</a>
+            <a href="/admin/tenants">Tenants</a>
+          </nav>
           <p class="note" id="updated" aria-live="polite"></p>
         </header>
         <div class="filters">

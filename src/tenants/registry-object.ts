@@ -13,6 +13,10 @@ export class Registry extends DurableObject<Env> {
     return (await this.ctx.storage.get<string>(`${KEY_PREFIX}${id}`)) ?? null;
   }
 
+  async remove(id: string): Promise<boolean> {
+    return this.ctx.storage.delete(`${KEY_PREFIX}${id}`);
+  }
+
   async list(): Promise<string[]> {
     const stored = await this.ctx.storage.list<string>({ prefix: KEY_PREFIX });
     return [...stored.values()];

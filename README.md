@@ -37,7 +37,7 @@ To talk to a real model, copy `.dev.vars.example` to `.dev.vars`, put a real key
 npm run dev
 ```
 
-Then load a tenant (the example is fictional; real tenants live with their products, never in this repository):
+Then add a tenant. Open `/admin/tenants`, sign in with the admin token and start from a template, or load the fictional example from the command line (real tenants live with their products, never in this repository):
 
 ```bash
 curl -X PUT http://localhost:8787/admin/api/tenants/demo \
@@ -49,16 +49,19 @@ curl -X PUT http://localhost:8787/admin/api/tenants/demo \
 
 ## API
 
-| Route                                                                   | What it does                                                                                                                                                                                            |
-| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /v1/tenants/:id/runs`                                             | Run the tenant's agent. The body depends on the agent kind (below). Answers as JSON, or as server-sent events (`delta`, then one `done` or `error`) when the request sends `Accept: text/event-stream`. |
-| `GET /v1/tenants/:id/status`                                            | `{ "accepting": true }` while the tenant's monthly pool has room.                                                                                                                                       |
-| `GET` / `DELETE /v1/tenants/:id/sessions/:sessionId`                    | Read the transcript of a stored session, or delete it. Owner only.                                                                                                                                      |
-| `POST /v1/tenants/:id/attest/challenge`, `/attest/key`                  | Enroll a device key for a tenant that authenticates attested devices.                                                                                                                                   |
-| `PUT /admin/api/tenants/:id`                                            | Create or replace a tenant. Returns the hash of each tool contract.                                                                                                                                     |
-| `GET` / `PUT` / `DELETE /admin/api/tenants/:id/documents[/:documentId]` | Manage a tenant's knowledge documents.                                                                                                                                                                  |
-| `GET /admin/api/metrics`                                                | Aggregates for the dashboard.                                                                                                                                                                           |
-| `GET /admin`                                                            | The dashboard.                                                                                                                                                                                          |
+| Route                                                                     | What it does                                                                                                                                                                                            |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /v1/tenants/:id/runs`                                               | Run the tenant's agent. The body depends on the agent kind (below). Answers as JSON, or as server-sent events (`delta`, then one `done` or `error`) when the request sends `Accept: text/event-stream`. |
+| `GET /v1/tenants/:id/status`                                              | `{ "accepting": true }` while the tenant's monthly pool has room.                                                                                                                                       |
+| `GET` / `DELETE /v1/tenants/:id/sessions/:sessionId`                      | Read the transcript of a stored session, or delete it. Owner only.                                                                                                                                      |
+| `POST /v1/tenants/:id/attest/challenge`, `/attest/key`                    | Enroll a device key for a tenant that authenticates attested devices.                                                                                                                                   |
+| `GET` / `PUT` / `DELETE /admin/api/tenants/:id`, `GET /admin/api/tenants` | Read, save, delete and list tenants. Saving returns the hash of each tool contract.                                                                                                                     |
+| `POST /admin/api/validate-tenant`                                         | Check a tenant document without saving it.                                                                                                                                                              |
+| `GET /admin/api/templates`                                                | Starting documents for a new tenant.                                                                                                                                                                    |
+| `GET` / `PUT` / `DELETE /admin/api/tenants/:id/documents[/:documentId]`   | Manage a tenant's knowledge documents.                                                                                                                                                                  |
+| `GET /admin/api/metrics`                                                  | Aggregates for the dashboard.                                                                                                                                                                           |
+| `GET /admin`                                                              | The dashboard.                                                                                                                                                                                          |
+| `GET /admin/tenants`                                                      | The tenants pages: create and edit tenants, their plans and limits, tool contracts, knowledge documents and wording.                                                                                    |
 
 Admin routes need the admin token. Errors are `{ "error": "<code>" }`, with a `message` and `retryAfterSeconds` where a person can act on them. Every response carries `x-request-id`.
 
