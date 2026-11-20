@@ -35,6 +35,7 @@
           { "name": "SUBJECT", "class_name": "Subject" },
           { "name": "SESSION", "class_name": "Session" },
           { "name": "KNOWLEDGE", "class_name": "Knowledge" },
+          { "name": "MODEL_HEALTH", "class_name": "ModelHealth" },
         ],
       },
     },
