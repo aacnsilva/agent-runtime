@@ -5,7 +5,7 @@ import type { ChatMessage, ModelReply } from "../llm/provider";
 import type { GatedAgent } from "../tenants/schema";
 import { parseReply, REPLY_SCHEMA, textsFor } from "./gate";
 import type { Reservation, Spend } from "./spend";
-import { callModel, reservePool, UPSTREAM_BODY } from "./spend";
+import { callModel, failureReport, reservePool } from "./spend";
 
 export interface RunInput {
   spend: Spend;
@@ -73,8 +73,7 @@ export const answer = async (
     costNanoEur: outcome.costNanoEur,
   };
   if (!outcome.ok) {
-    const failure = outcome.billable ? "upstream_billed" : "upstream";
-    return { status: 502, outcome: failure, body: UPSTREAM_BODY, ...measured };
+    return { ...failureReport(outcome), ...measured };
   }
   return { status: 200, ...verdict(input, outcome.reply), ...measured };
 };

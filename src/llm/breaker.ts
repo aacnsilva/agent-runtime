@@ -1,12 +1,15 @@
 import type { Candidates, ModelId } from "./catalog";
 
-const FAILURES_TO_OPEN = 3;
-const OPEN_MS = 30_000;
+export const FAILURES_TO_OPEN = 3;
+export const FAILURE_WINDOW_MS = 60_000;
+export const OPEN_MS = 30_000;
 
-interface Circuit {
-  failures: number;
+export interface Circuit {
+  failures: number[];
   openedAt: number | null;
 }
+
+export type BreakerState = Record<string, Circuit>;
 
 export interface Breaker {
   order: (candidates: Candidates, now: number) => Candidates;
@@ -15,30 +18,48 @@ export interface Breaker {
   isOpen: (model: ModelId, now: number) => boolean;
 }
 
-export const createBreaker = (): Breaker => {
-  const circuits = new Map<ModelId, Circuit>();
+const isOnTrial = (circuit: Circuit, now: number): boolean =>
+  circuit.openedAt !== null && now - circuit.openedAt < OPEN_MS + FAILURE_WINDOW_MS;
 
-  const isOpen = (model: ModelId, now: number): boolean => {
-    const openedAt = circuits.get(model)?.openedAt ?? null;
-    return openedAt !== null && now - openedAt < OPEN_MS;
-  };
-
-  const order = (candidates: Candidates, now: number): Candidates => {
-    const closed = candidates.filter((model) => !isOpen(model, now));
-    const [first, ...rest] = closed;
-    return first === undefined ? [candidates[0]] : [first, ...rest];
-  };
-
-  const succeeded = (model: ModelId): void => {
-    circuits.delete(model);
-  };
-
-  const failed = (model: ModelId, now: number): void => {
-    const failures = (circuits.get(model)?.failures ?? 0) + 1;
-    circuits.set(model, { failures, openedAt: failures >= FAILURES_TO_OPEN ? now : null });
-  };
-
-  return { order, succeeded, failed, isOpen };
+export const isOpen = (state: BreakerState, model: ModelId, now: number): boolean => {
+  const openedAt = state[model]?.openedAt ?? null;
+  return openedAt !== null && now - openedAt < OPEN_MS;
 };
 
-export const sharedBreaker = createBreaker();
+export const hasHistory = (state: BreakerState, model: ModelId): boolean =>
+  state[model] !== undefined;
+
+export const recordFailure = (state: BreakerState, model: ModelId, now: number): BreakerState => {
+  const circuit = state[model] ?? { failures: [], openedAt: null };
+  const failures = [...circuit.failures.filter((at) => now - at < FAILURE_WINDOW_MS), now].slice(
+    -FAILURES_TO_OPEN,
+  );
+  const opens = failures.length >= FAILURES_TO_OPEN || isOnTrial(circuit, now);
+  return { ...state, [model]: { failures, openedAt: opens ? now : null } };
+};
+
+export const recordSuccess = (state: BreakerState, model: ModelId): BreakerState =>
+  Object.fromEntries(Object.entries(state).filter(([name]) => name !== model));
+
+export const orderCandidates = (
+  state: BreakerState,
+  candidates: Candidates,
+  now: number,
+): Candidates => {
+  const [first, ...rest] = candidates.filter((model) => !isOpen(state, model, now));
+  return first === undefined ? [candidates[0]] : [first, ...rest];
+};
+
+export const createBreaker = (): Breaker => {
+  let state: BreakerState = {};
+  return {
+    order: (candidates, now) => orderCandidates(state, candidates, now),
+    isOpen: (model, now) => isOpen(state, model, now),
+    succeeded: (model) => {
+      state = recordSuccess(state, model);
+    },
+    failed: (model, now) => {
+      state = recordFailure(state, model, now);
+    },
+  };
+};

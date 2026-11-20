@@ -6,7 +6,14 @@ import { createChatStream } from "../src/agent/chat-stream";
 import { parseChat } from "../src/gateway/chat-body";
 import { Rejection } from "../src/http/respond";
 import type { ModelMessage } from "../src/llm/provider";
-import { orderedResults, transcript, trimHistory, withoutImages } from "../src/sessions/session";
+import {
+  historyLimits,
+  measuredTokensPerChar,
+  orderedResults,
+  transcript,
+  trimHistory,
+  withoutImages,
+} from "../src/sessions/session";
 import type { ChatAgent } from "../src/tenants/schema";
 import { tenantSchema } from "../src/tenants/schema";
 import { canonical, contractHash } from "../src/tools/contract-hash";
@@ -222,13 +229,42 @@ describe("session history", () => {
     { role: "user", content: [{ type: "tool_result", tool_use_id: label, content: "result" }] },
     { role: "assistant", content: `answer ${label}` },
   ];
-  const limits = { maxChars: 300, maxMessages: 60, imageChars: 0 };
+  const limits = {
+    maxChars: 300,
+    maxMessages: 60,
+    imageChars: 0,
+    maxTokens: null,
+    tokensPerChar: 1 / 3,
+  };
 
   it("drops whole exchanges from the front, never leaving a tool result without its call", () => {
     const kept = trimHistory([...exchange("a"), ...exchange("b"), ...exchange("c")], limits);
     expect(kept).toHaveLength(8);
     expect(kept[0]?.content).toContain("question b");
     expect(trimHistory(exchange("a"), { ...limits, maxChars: 10 })).toHaveLength(4);
+  });
+
+  it("starts what the model sees at a question, even when the stored tail begins mid-exchange", () => {
+    const tail = [...exchange("a").slice(2), ...exchange("b")];
+    expect(trimHistory(tail, { ...limits, maxChars: 10_000 })[0]?.content).toContain("question b");
+  });
+
+  it("budgets in tokens at the rate the provider last measured for this conversation", () => {
+    const all = [...exchange("a"), ...exchange("b")];
+    const roomy = { ...limits, maxChars: 10_000, maxTokens: 100 };
+    expect(trimHistory(all, roomy)).toHaveLength(8);
+    expect(trimHistory(all, { ...roomy, tokensPerChar: 1 })).toHaveLength(4);
+    const usage = { input: 300, output: 50, cacheWrite: 100, cacheRead: 600 };
+    expect(measuredTokensPerChar(usage, 4000)).toBe(0.25);
+    expect(measuredTokensPerChar(usage, 0)).toBeNull();
+    expect(measuredTokensPerChar(usage, 10)).toBe(2);
+    expect(historyLimits(agentOf().input, null)).toMatchObject({
+      maxTokens: null,
+      tokensPerChar: 1 / 3,
+    });
+    expect(
+      historyLimits(agentOf({ input: { maxConversationTokens: 900 } }).input, 0.4),
+    ).toMatchObject({ maxTokens: 900, tokensPerChar: 0.4 });
   });
 
   it("returns client results in the order the model asked, merged with the ones the runtime ran", () => {
@@ -240,6 +276,7 @@ describe("session history", () => {
         { type: "tool_result" as const, tool_use_id: "one", content: "a" },
       ],
       toolRounds: 1,
+      messages: [],
     };
     const merged = orderedResults(pending, [
       { type: "tool_result", tool_use_id: "two", content: "b" },

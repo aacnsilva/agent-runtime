@@ -142,6 +142,7 @@ const chatInput = z.object({
   maxToolInputChars: z.number().int().min(1).max(20_000).default(4000),
   maxToolResultChars: z.number().int().min(1).max(40_000).default(6000),
   maxConversationChars: z.number().int().min(1000).max(400_000).default(40_000),
+  maxConversationTokens: z.number().int().min(250).max(200_000).optional(),
   maxBodyBytes: z.number().int().min(256).max(400_000).default(240_000),
   maxImageBytes: z.number().int().min(0).max(200_000).default(0),
   imageChars: z.number().int().min(0).max(40_000).default(6000),

@@ -138,6 +138,31 @@ export interface Reply {
   };
 }
 
+export interface PostOptions {
+  tenantId: string;
+  token: string;
+  body: unknown;
+  headers: Record<string, string>;
+}
+
+export const postWith = async (options: PostOptions): Promise<Reply> => {
+  const response = await fetch(`${runtimeUrl()}/v1/tenants/${options.tenantId}/runs`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: ALLOWED_ORIGIN,
+      authorization: `Bearer ${options.token}`,
+      ...options.headers,
+    },
+    body: JSON.stringify(options.body),
+  });
+  return {
+    status: response.status,
+    headers: response.headers,
+    body: (await response.json()) as Reply["body"],
+  };
+};
+
 export const post = async (
   tenantId: string,
   token: string | null,

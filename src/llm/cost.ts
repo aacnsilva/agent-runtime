@@ -37,7 +37,7 @@ export interface ReserveInput {
   maxOutputTokens: number;
 }
 
-const CHARS_PER_TOKEN = 3;
+export const CHARS_PER_TOKEN = 3;
 const REQUEST_OVERHEAD_TOKENS = 600;
 
 export const worstCaseUsage = (input: ReserveInput): Usage => ({

@@ -15,6 +15,8 @@ export interface RecordedCall {
   messageCount: number;
   toolNames: string[];
   thinking: string | null;
+  cancelled: boolean;
+  tookMs: number;
 }
 
 export interface MockProvider {
@@ -33,6 +35,7 @@ interface Scenario {
   text: string;
   stopReason: string;
   breakMidStream: boolean;
+  chunkDelayMs: number;
   tool: ToolCall | null;
 }
 
@@ -51,6 +54,8 @@ interface ProviderRequest {
 const USAGE = { input_tokens: 40, output_tokens: 25, cache_read_input_tokens: 5000 };
 const CHUNK_CHARS = 9;
 const FIRST_TOKEN_DELAY_MS = 30;
+const CHUNK_DELAY_MS = 2;
+const SLOW_CHUNK_DELAY_MS = 60;
 const TOOL_PATTERN = /(?:TOOLCALL|LOOP|TWOSTEP) (\w+)(?: (\w+)=(.+))?/;
 const VECTOR_SIZE = 48;
 const GUIDES: Record<string, unknown> = {
@@ -119,6 +124,7 @@ const base: Scenario = {
   text: "",
   stopReason: "end_turn",
   breakMidStream: false,
+  chunkDelayMs: CHUNK_DELAY_MS,
   tool: null,
 };
 
@@ -133,6 +139,7 @@ const chatScenario = (body: ProviderRequest, question: string): Scenario => {
   }
   return {
     ...base,
+    chunkDelayMs: question.includes("SLOW") ? SLOW_CHUNK_DELAY_MS : CHUNK_DELAY_MS,
     text: `Answer to: ${question}. ${"This sentence pads the answer so it streams. ".repeat(4)}`,
   };
 };
@@ -182,6 +189,8 @@ const describe = (body: ProviderRequest): RecordedCall => {
     messageCount: body.messages.length,
     toolNames: (body.tools ?? []).map((tool) => tool.name),
     thinking: body.thinking?.type ?? null,
+    cancelled: false,
+    tookMs: 0,
   };
 };
 
@@ -238,7 +247,10 @@ const streamText = async (response: ServerResponse, scenario: Scenario): Promise
       index: 0,
       delta: { type: "text_delta", text: chunk },
     });
-    await sleep(2);
+    await sleep(scenario.chunkDelayMs);
+    if (response.destroyed) {
+      return false;
+    }
   }
   writeEvent(response, "content_block_stop", { index: 0 });
   return true;
@@ -323,6 +335,11 @@ const handleMessages = async (
   const body = JSON.parse(await readBody(request)) as ProviderRequest;
   const call = describe(body);
   calls.push(call);
+  const startedAt = performance.now();
+  response.on("close", () => {
+    call.cancelled = !response.writableEnded;
+    call.tookMs = performance.now() - startedAt;
+  });
   const scenario = scenarioFor(body);
   if (scenario.status !== 200) {
     sendJson(response, scenario.status, {

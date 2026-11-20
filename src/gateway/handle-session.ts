@@ -32,7 +32,7 @@ const respond = async (
     {
       sessionId,
       updatedAt: state.updatedAt,
-      awaitingToolResults: state.pending !== null,
+      awaitingToolResults: state.awaitingToolResults,
       messages: transcript(state.messages),
     },
     200,

@@ -13,7 +13,7 @@ It is TypeScript on Cloudflare Workers, with Durable Objects for state. Everythi
 | LLM routing   | Capability tiers, a provider adapter for Anthropic, fallback before any text is written, a circuit breaker per model, cost metering                                                         | A second provider                                             |
 | Agents        | A gated question-and-answer agent, and a chat agent with tools, in stateless or stored mode                                                                                                 | Runtime-issued approval prompts                               |
 | Tools         | Contracts pinned by hash, tools that run on the client, read-only fetch tools behind an egress allowlist, knowledge search                                                                  | Code-mode sandbox, tools with side effects run by the runtime |
-| Sessions      | Stored conversations with ownership, a transcript, deletion, and a tool loop with a round limit                                                                                             |                                                               |
+| Sessions      | Stored conversations as an append-only log with ownership, a lock per turn, idempotent retries, a transcript, deletion, and a tool loop with a round limit                                  |                                                               |
 | Knowledge     | Per-tenant store, chunking, keyword and vector ranking, visibility per plan, document management                                                                                            | Reranking, very large corpora                                 |
 | Observability | One record per request (codes and measurements only), aggregates, a dashboard                                                                                                               | Tracing, alerts                                               |
 
@@ -74,6 +74,13 @@ Admin routes need the admin token. Errors are `{ "error": "<code>" }`, with a `m
 | Chat, stored    | `{ "contractVersion", "context", "sessionId"?, "message" }`, or `"toolResults"` in place of `"message"` to answer a pending client tool | `{ "sessionId", "stopReason", "content", "quota" }` |
 
 A chat client may send `contractHash`; the runtime refuses the request if the tenant's tools no longer match it.
+
+### Turns on a stored session
+
+- **One turn at a time.** A turn takes the session's lock before any model call. A second request on the same session gets `409 session_busy` with `Retry-After` at once, and nothing is paid for it. The lock is released when the turn ends, however it ends, and expires by itself if a worker dies holding it.
+- **Retries.** Send `Idempotency-Key` (1 to 128 visible ASCII characters, new for each turn) with a turn. A repeat of the same request with the same key returns the stored reply with `Idempotent-Replay: true`: no model call, no message counted, nothing added to the conversation. A first turn sent without a `sessionId` gets a session derived from the subject and the key, so its retry lands on the same session. The same key with a different body is `422 idempotency_key_reused`; a key from an earlier turn is `409 idempotency_key_spent`. A retry that arrives while the first attempt is still running gets `session_busy`; retry again after `Retry-After`. Replies are kept only in the session's own store, so the key has no effect for stateless and gated agents.
+- **History is a log.** Finished turns are appended and never rewritten or dropped; the transcript shows all of them. Only the copy sent to the model is trimmed, from the front in whole exchanges, to the agent's `input.maxMessages` and `input.maxConversationChars`, and to `input.maxConversationTokens` when the tenant sets it. Tokens are estimated from characters at the rate the provider's own usage figures gave for that session's last call.
+- **Streams always end.** A stream ends on exactly one `done` or `error` event and is then closed, including when the runtime itself fails (`error: internal`). When the client goes away, the model call in flight is cancelled.
 
 ### Tenants
 
@@ -149,7 +156,8 @@ A tenant picks one of three agent kinds. Evals reach any of them through the eva
 ![LLM routing](docs/design/03-llm-routing.png)
 
 - **Before the call** the worst case is priced and reserved in the tenant's pool, and the candidates for the tier are ordered, skipping models whose circuit is open.
-- **The call** falls back to the next candidate only when nothing was written and nothing can have been billed. A timeout, or a failure after text began, is never retried and counts as spent.
+- **The circuit** for a model opens after three failures within a minute and pauses that model for thirty seconds; the first failure after the pause opens it again, and a success closes it. Only the provider being unavailable counts: a 5xx, a 429, a lost connection or a timeout. A request the provider refuses (other 4xx) or a caller who left does not. The state is kept in one Durable Object shared by every worker instance; an instance reads it when it starts, refreshes it in the background, and reports outcomes off the request path.
+- **The call** is always streamed from the provider. It has twenty seconds to start and may then run as long as it keeps arriving; thirty seconds of silence ends it. It falls back to the next candidate only when nothing was written and nothing can have been billed. A timeout, or a failure after text began, is never retried and counts as spent. A call the client abandoned is cancelled and not retried.
 - **After the call** the reserve is replaced by the real cost.
 
 ### Knowledge

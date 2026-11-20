@@ -26,7 +26,7 @@ describe("agent run", () => {
     const call = (await providerCalls()).find((entry) => entry.question.includes("SHAPEPROBE"));
     expect(call).toMatchObject({
       model: "claude-haiku-5-5",
-      stream: false,
+      stream: true,
       cacheMarked: true,
       hasSchema: true,
       lastRole: "system",

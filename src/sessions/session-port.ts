@@ -1,7 +1,23 @@
-import type { SessionPort } from "../agent/session-run";
+import type { Begun, SessionPort, TurnCommit } from "../agent/session-run";
 import type { Env } from "../env";
-import type { SessionState } from "./session";
-import type { Session } from "./session-object";
+import type { ModelMessage } from "../llm/provider";
+import type { Pending } from "./session";
+import type { Begun as StoredBegun, Session } from "./session-object";
+import { REFUSAL_STATUS } from "./turn";
+
+export interface TurnIdentity {
+  owner: string;
+  key: string | null;
+  fingerprint: string;
+  tail: number;
+}
+
+export interface SessionView {
+  owner: string;
+  updatedAt: number;
+  awaitingToolResults: boolean;
+  messages: ModelMessage[];
+}
 
 export const sessionStub = (
   env: Env,
@@ -10,19 +26,89 @@ export const sessionStub = (
 ): DurableObjectStub<Session> =>
   env.SESSION.get(env.SESSION.idFromName(`session:${tenantId}:${sessionId}`));
 
-const isState = (value: unknown): value is SessionState =>
-  typeof value === "object" && value !== null && "owner" in value && "messages" in value;
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const messageOf = (serialized: string): ModelMessage => JSON.parse(serialized) as ModelMessage;
+
+const pendingOf = (serialized: string | null): Pending | null => {
+  if (serialized === null) {
+    return null;
+  }
+  const parsed = JSON.parse(serialized) as Omit<Pending, "messages"> & {
+    messages?: ModelMessage[];
+  };
+  return { ...parsed, messages: parsed.messages ?? [] };
+};
+
+const bodyOf = (serialized: string): Record<string, unknown> => {
+  const parsed: unknown = JSON.parse(serialized);
+  return isRecord(parsed) ? parsed : {};
+};
+
+const begunOf = (stored: StoredBegun): Begun => {
+  if (stored.kind === "refused") {
+    return { kind: "refused", status: REFUSAL_STATUS[stored.code], code: stored.code };
+  }
+  if (stored.kind === "replay") {
+    return { kind: "replay", body: bodyOf(stored.body) };
+  }
+  return {
+    kind: "started",
+    history: stored.history.map(messageOf),
+    pending: pendingOf(stored.pending),
+    tokensPerChar: stored.tokensPerChar,
+  };
+};
 
 export const readSession = async (
   stub: DurableObjectStub<Session>,
-): Promise<SessionState | null> => {
-  const serialized = await stub.load();
-  const parsed: unknown = serialized === null ? null : JSON.parse(serialized);
-  return isState(parsed) ? parsed : null;
+): Promise<SessionView | null> => {
+  const stored = await stub.read();
+  if (stored === null) {
+    return null;
+  }
+  const pending = pendingOf(stored.pending);
+  return {
+    owner: stored.owner,
+    updatedAt: stored.updatedAt,
+    awaitingToolResults: pending !== null,
+    messages: [...stored.messages.map(messageOf), ...(pending?.messages ?? [])],
+  };
 };
 
-export const sessionPort = (stub: DurableObjectStub<Session>): SessionPort => ({
-  load: async () => readSession(stub),
-  save: async (state, expectedVersion) =>
-    stub.save(JSON.stringify({ ...state, version: expectedVersion + 1 }), expectedVersion),
-});
+export const sessionPort = (
+  stub: DurableObjectStub<Session>,
+  identity: TurnIdentity,
+): SessionPort => {
+  const leaseId = crypto.randomUUID();
+  const { key, fingerprint } = identity;
+  let held = false;
+  const commit = async (turn: TurnCommit): Promise<boolean> => {
+    const saved = await stub.commit({
+      leaseId,
+      now: Date.now(),
+      messages: turn.append.map((message) => JSON.stringify(message)),
+      pending: turn.pending === null ? null : JSON.stringify(turn.pending),
+      replay: key === null ? null : { key, fingerprint, body: JSON.stringify(turn.body) },
+      tokensPerChar: turn.tokensPerChar,
+    });
+    held = held && !saved;
+    return saved;
+  };
+  return {
+    begin: async () => {
+      const begun = await stub.begin({ ...identity, leaseId, now: Date.now() });
+      held = begun.kind === "started";
+      return begunOf(begun);
+    },
+    renew: async () => stub.renew({ leaseId, now: Date.now() }),
+    commit,
+    release: async () => {
+      if (held) {
+        held = false;
+        await stub.release({ leaseId, now: Date.now() });
+      }
+    },
+  };
+};

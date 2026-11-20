@@ -4,6 +4,7 @@ import type { ModelId } from "./catalog";
 import { MODELS } from "./catalog";
 import type { Usage } from "./cost";
 import type {
+  FailureKind,
   Listeners,
   MessageBlock,
   ModelMessage,
@@ -13,13 +14,25 @@ import type {
   ReplyBlock,
 } from "./provider";
 
-const REQUEST_TIMEOUT_MS = 20_000;
+const FIRST_BYTE_TIMEOUT_MS = 20_000;
+const STREAM_IDLE_TIMEOUT_MS = 30_000;
 const MAX_RETRIES = 1;
+const RETRYABLE_STATUSES = new Set([408, 409, 429]);
 const CACHED = { type: "ephemeral" } as const;
 
 export interface AnthropicSettings {
   apiKey: string;
   baseURL: string | undefined;
+  signal?: AbortSignal;
+  fetch?: typeof fetch;
+  firstByteTimeoutMs?: number;
+  streamIdleTimeoutMs?: number;
+}
+
+export class StreamStalled extends Error {
+  constructor() {
+    super("stream_stalled");
+  }
 }
 
 type Params = Anthropic.MessageCreateParamsNonStreaming;
@@ -114,40 +127,86 @@ const replyOf = (message: Anthropic.Message): ModelReply => {
 const isToolStart = (event: Anthropic.MessageStreamEvent): boolean =>
   event.type === "content_block_start" && event.content_block.type === "tool_use";
 
+const failureKindOf = (error: unknown): FailureKind => {
+  if (error instanceof StreamStalled || error instanceof Anthropic.APIConnectionTimeoutError) {
+    return "timeout";
+  }
+  if (error instanceof Anthropic.APIUserAbortError) {
+    return "aborted";
+  }
+  if (!(error instanceof Anthropic.APIError) || typeof error.status !== "number") {
+    return "unavailable";
+  }
+  const isClientError = error.status >= 400 && error.status < 500;
+  return isClientError && !RETRYABLE_STATUSES.has(error.status) ? "rejected" : "unavailable";
+};
+
+interface Watch {
+  touch: () => void;
+  stop: () => void;
+  hasStalled: () => boolean;
+}
+
+const watchForSilence = (idleMs: number, onSilence: () => void): Watch => {
+  let stalled = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stop = (): void => {
+    clearTimeout(timer);
+  };
+  const touch = (): void => {
+    stop();
+    timer = setTimeout(() => {
+      stalled = true;
+      onSilence();
+    }, idleMs);
+  };
+  return { touch, stop, hasStalled: () => stalled };
+};
+
 export const createAnthropicProvider = (settings: AnthropicSettings): Provider => {
   const client = new Anthropic({
     apiKey: settings.apiKey,
-    timeout: REQUEST_TIMEOUT_MS,
+    timeout: settings.firstByteTimeoutMs ?? FIRST_BYTE_TIMEOUT_MS,
     maxRetries: MAX_RETRIES,
     ...(settings.baseURL === undefined ? {} : { baseURL: settings.baseURL }),
+    ...(settings.fetch === undefined ? {} : { fetch: settings.fetch }),
   });
+  const idleMs = settings.streamIdleTimeoutMs ?? STREAM_IDLE_TIMEOUT_MS;
 
-  const streamed = async (params: Params, listeners: Listeners): Promise<Anthropic.Message> =>
-    client.messages
-      .stream(params)
-      .on("text", (text) => listeners.onText?.(text))
-      .on("streamEvent", (event) => {
-        if (isToolStart(event)) {
-          listeners.onTool?.();
-        }
-      })
-      .finalMessage();
+  const streamed = async (params: Params, listeners: Listeners): Promise<Anthropic.Message> => {
+    const stream = client.messages.stream(
+      params,
+      settings.signal === undefined ? {} : { signal: settings.signal },
+    );
+    const watch = watchForSilence(idleMs, () => {
+      stream.abort();
+    });
+    try {
+      return await stream
+        .on("connect", watch.touch)
+        .on("text", (text) => listeners.onText?.(text))
+        .on("streamEvent", (event) => {
+          watch.touch();
+          if (isToolStart(event)) {
+            listeners.onTool?.();
+          }
+        })
+        .finalMessage();
+    } catch (error) {
+      throw watch.hasStalled() ? new StreamStalled() : error;
+    } finally {
+      watch.stop();
+    }
+  };
 
   const complete = async (
     model: ModelId,
     request: ModelRequest,
     listeners: Listeners,
-  ): Promise<ModelReply> => {
-    const params = paramsFor(model, request);
-    const message =
-      listeners.onText === undefined
-        ? await client.messages.create(params)
-        : await streamed(params, listeners);
-    return replyOf(message);
-  };
+  ): Promise<ModelReply> => replyOf(await streamed(paramsFor(model, request), listeners));
 
   return {
     complete,
-    isTimeout: (error) => error instanceof Anthropic.APIConnectionTimeoutError,
+    failureKind: (error) => (settings.signal?.aborted === true ? "aborted" : failureKindOf(error)),
   };
 };

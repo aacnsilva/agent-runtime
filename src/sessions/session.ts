@@ -1,19 +1,15 @@
 import { conversationChars } from "../gateway/chat-body";
+import type { Usage } from "../llm/cost";
+import { CHARS_PER_TOKEN } from "../llm/cost";
 import type { MessageBlock, ModelMessage, ToolResultBlock } from "../llm/provider";
+import type { ChatInputLimits } from "../tenants/schema";
 
 export interface Pending {
   orderedIds: string[];
   clientIds: string[];
   serverResults: ToolResultBlock[];
   toolRounds: number;
-}
-
-export interface SessionState {
-  owner: string;
-  version: number;
   messages: ModelMessage[];
-  pending: Pending | null;
-  updatedAt: number;
 }
 
 export interface TranscriptEntry {
@@ -25,14 +21,29 @@ export interface HistoryLimits {
   maxChars: number;
   maxMessages: number;
   imageChars: number;
+  maxTokens: number | null;
+  tokensPerChar: number;
 }
 
-export const newSession = (owner: string, now: number): SessionState => ({
-  owner,
-  version: 0,
-  messages: [],
-  pending: null,
-  updatedAt: now,
+const MIN_TOKENS_PER_CHAR = 0.05;
+const MAX_TOKENS_PER_CHAR = 2;
+
+export const DEFAULT_TOKENS_PER_CHAR = 1 / CHARS_PER_TOKEN;
+
+export const measuredTokensPerChar = (usage: Usage, promptChars: number): number | null => {
+  const promptTokens = usage.input + usage.cacheWrite + usage.cacheRead;
+  if (promptTokens <= 0 || promptChars <= 0) {
+    return null;
+  }
+  return Math.min(MAX_TOKENS_PER_CHAR, Math.max(MIN_TOKENS_PER_CHAR, promptTokens / promptChars));
+};
+
+export const historyLimits = (input: ChatInputLimits, measured: number | null): HistoryLimits => ({
+  maxChars: input.maxConversationChars,
+  maxMessages: input.maxMessages,
+  imageChars: input.imageChars,
+  maxTokens: input.maxConversationTokens ?? null,
+  tokensPerChar: measured ?? DEFAULT_TOKENS_PER_CHAR,
 });
 
 const isQuestion = (message: ModelMessage): boolean =>
@@ -40,15 +51,23 @@ const isQuestion = (message: ModelMessage): boolean =>
   (typeof message.content === "string" ||
     message.content.every((block) => block.type !== "tool_result"));
 
-const fits = (messages: readonly ModelMessage[], limits: HistoryLimits): boolean =>
-  messages.length <= limits.maxMessages &&
-  conversationChars(messages, limits.imageChars) <= limits.maxChars;
+const fits = (messages: readonly ModelMessage[], limits: HistoryLimits): boolean => {
+  const chars = conversationChars(messages, limits.imageChars);
+  const withinTokens =
+    limits.maxTokens === null || Math.ceil(chars * limits.tokensPerChar) <= limits.maxTokens;
+  return messages.length <= limits.maxMessages && chars <= limits.maxChars && withinTokens;
+};
+
+const fromFirstQuestion = (messages: readonly ModelMessage[]): ModelMessage[] => {
+  const first = messages.findIndex(isQuestion);
+  return first <= 0 ? [...messages] : messages.slice(first);
+};
 
 export const trimHistory = (
   messages: readonly ModelMessage[],
   limits: HistoryLimits,
 ): ModelMessage[] => {
-  let kept = [...messages];
+  let kept = fromFirstQuestion(messages);
   while (!fits(kept, limits)) {
     const next = kept.findIndex((message, index) => index > 0 && isQuestion(message));
     if (next === -1) {

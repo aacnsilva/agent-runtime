@@ -1,4 +1,5 @@
 import type { Knowledge } from "./knowledge/knowledge-object";
+import type { ModelHealth } from "./llm/health-object";
 import type { Metrics } from "./observability/metrics-object";
 import type { Ledger } from "./quota/ledger-object";
 import type { Subject } from "./quota/subject-object";
@@ -12,6 +13,7 @@ export interface Env {
   SUBJECT: DurableObjectNamespace<Subject>;
   SESSION: DurableObjectNamespace<Session>;
   KNOWLEDGE: DurableObjectNamespace<Knowledge>;
+  MODEL_HEALTH: DurableObjectNamespace<ModelHealth>;
   ANTHROPIC_API_KEY?: string;
   ANTHROPIC_BASE_URL?: string;
   ADMIN_TOKEN?: string;

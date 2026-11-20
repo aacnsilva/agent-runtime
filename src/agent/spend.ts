@@ -1,5 +1,5 @@
 import { Rejection } from "../http/respond";
-import { sharedBreaker } from "../llm/breaker";
+import type { Breaker } from "../llm/breaker";
 import type { ModelId, Tier } from "../llm/catalog";
 import { candidatesFor } from "../llm/catalog";
 import type { Usage } from "../llm/cost";
@@ -29,6 +29,7 @@ export interface Spend {
   ip: string;
   skipNetworkLimit: boolean;
   provider: Provider;
+  breaker: Breaker;
   ledger: LedgerPort;
 }
 
@@ -49,6 +50,7 @@ export interface ModelSuccess {
 export interface ModelFailure {
   ok: false;
   billable: boolean;
+  aborted: boolean;
   model: ModelId;
   attempts: number;
   usage: Usage;
@@ -67,6 +69,20 @@ const LIMIT_MESSAGES: Record<RefusalCode, string> = {
 export const UPSTREAM_BODY = {
   error: "upstream",
   message: "The answer service did not reply. Try again in a moment.",
+};
+
+export interface FailureReport {
+  status: number;
+  outcome: string;
+  body: Record<string, unknown>;
+}
+
+export const failureReport = (failure: ModelFailure): FailureReport => {
+  if (failure.aborted) {
+    return { status: 499, outcome: "client_closed", body: { error: "client_closed" } };
+  }
+  const outcome = failure.billable ? "upstream_billed" : "upstream";
+  return { status: 502, outcome, body: UPSTREAM_BODY };
 };
 
 export const limitsOf = (tenant: Tenant): Limits => ({
@@ -114,7 +130,7 @@ const failed = async (
   reservation: Reservation,
   failure: RoutingFailure,
 ): Promise<ModelFailure> => {
-  const { billable, model, attempts } = failure.detail;
+  const { billable, aborted, model, attempts } = failure.detail;
   if (billable) {
     await spend.ledger.settle({
       now: Date.now(),
@@ -127,6 +143,7 @@ const failed = async (
   return {
     ok: false,
     billable,
+    aborted,
     model,
     attempts,
     usage: NO_USAGE,
@@ -142,14 +159,10 @@ export interface ModelCall {
 }
 
 const tracking = (listeners: Listeners, onStart: () => void): Listeners => ({
-  ...(listeners.onText === undefined
-    ? {}
-    : {
-        onText: (text: string): void => {
-          onStart();
-          listeners.onText?.(text);
-        },
-      }),
+  onText: (text: string): void => {
+    onStart();
+    listeners.onText?.(text);
+  },
   onTool: (): void => {
     onStart();
     listeners.onTool?.();
@@ -165,9 +178,10 @@ export const callModel = async (call: ModelCall): Promise<ModelOutcome> => {
   try {
     const routed = await routeWithFallback({
       candidates: candidatesFor(spend.tier),
-      breaker: sharedBreaker,
+      breaker: spend.breaker,
       call: (model) => spend.provider.complete(model, call.request, listeners),
-      isBillable: (error) => started || spend.provider.isTimeout(error),
+      failureKind: spend.provider.failureKind,
+      hasStarted: () => started,
     });
     const { usage } = routed.reply;
     const cost = costNanoEur(usage, {

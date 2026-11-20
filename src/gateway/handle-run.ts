@@ -9,9 +9,12 @@ import type { Spend } from "../agent/spend";
 import { authenticate, clientIp } from "../authn/authenticate";
 import type { Principal } from "../authn/principal";
 import { corsHeaders, withHeaders } from "../http/cors";
-import { json, Rejection, rejectionResponse } from "../http/respond";
+import { INTERNAL_BODY, json, Rejection, rejectionResponse } from "../http/respond";
 import { createAnthropicProvider } from "../llm/anthropic";
 import type { Listeners } from "../llm/provider";
+import { breakerFor } from "../llm/shared-breaker";
+import { logEvent } from "../observability/log";
+import { fingerprintOf, readIdempotencyKey, sessionIdFor } from "../sessions/idempotency";
 import { sessionPort, sessionStub } from "../sessions/session-port";
 import { loadTenant } from "../tenants/registry";
 import type { ChatAgent, Contract, GatedAgent, Tenant } from "../tenants/schema";
@@ -35,7 +38,11 @@ interface Call {
   body: string;
 }
 
-const spendFor = (context: RequestContext, tenant: Tenant, principal: Principal): Spend => {
+const spendFor = async (
+  context: RequestContext,
+  tenant: Tenant,
+  principal: Principal,
+): Promise<Spend> => {
   const { env } = context;
   if (env.ANTHROPIC_API_KEY === undefined || env.ANTHROPIC_API_KEY === "") {
     throw new Rejection(503, "unconfigured", { message: UNCONFIGURED_MESSAGE });
@@ -49,7 +56,9 @@ const spendFor = (context: RequestContext, tenant: Tenant, principal: Principal)
     provider: createAnthropicProvider({
       apiKey: env.ANTHROPIC_API_KEY,
       baseURL: env.ANTHROPIC_BASE_URL,
+      signal: context.abort.signal,
     }),
+    breaker: await breakerFor(env, context.ctx),
     ledger: env.LEDGER.get(env.LEDGER.idFromName(`pool:${tenant.id}`)),
   };
 };
@@ -93,22 +102,45 @@ const deliver = async (call: Call, work: Work): Promise<Response> => {
   const { evaluated } = call.principal;
   if (!wantsStream(context.request)) {
     const delivery = { streamed: false, ttftMs: null, evaluated };
-    const run = traced(call, await work(undefined, delivery));
+    const working = work(undefined, delivery);
+    context.ctx.waitUntil(working.catch(() => undefined));
+    const run = traced(call, await working);
     recordFinished({ context, tenantId: tenant.id, run, delivery });
-    return json(run.body, run.status);
+    return json(run.body, run.status, replayHeaders(run));
   }
   const delivery: Delivery = { streamed: true, ttftMs: null, evaluated };
   return streamResponse(context, async (emit) => {
-    const finished = await work(emit, delivery).catch((error: unknown) => failedMidStream(error));
+    const finished = await work(emit, delivery).catch((error: unknown) =>
+      failedMidStream(context, error),
+    );
     const run = traced(call, finished);
     recordFinished({ context, tenantId: tenant.id, run, delivery });
     return finalEvent(run);
   });
 };
 
-const failedMidStream = (error: unknown): Finished => {
+const replayHeaders = (run: Finished): Headers => {
+  const headers = new Headers();
+  if (run.replayed === true) {
+    headers.set("idempotent-replay", "true");
+  }
+  return headers;
+};
+
+const UNMEASURED = {
+  model: null,
+  attempts: 0,
+  usage: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 },
+  costNanoEur: 0,
+};
+
+const failedMidStream = (context: RequestContext, error: unknown): Finished => {
   if (!(error instanceof Rejection)) {
-    throw error;
+    logEvent("unhandled", {
+      requestId: context.requestId,
+      message: error instanceof Error ? error.message : "unknown",
+    });
+    return { status: 500, outcome: "internal", body: INTERNAL_BODY, ...UNMEASURED };
   }
   return {
     status: error.status,
@@ -117,10 +149,7 @@ const failedMidStream = (error: unknown): Finished => {
       error: error.code,
       ...(error.publicMessage === undefined ? {} : { message: error.publicMessage }),
     },
-    model: null,
-    attempts: 0,
-    usage: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 },
-    costNanoEur: 0,
+    ...UNMEASURED,
   };
 };
 
@@ -211,12 +240,39 @@ const statelessResponse = async (call: Call, agent: ChatAgent): Promise<Response
   );
 };
 
+const BAD_KEY_MESSAGE = "Idempotency-Key must be 1 to 128 visible ASCII characters.";
+
+const idempotencyKeyOf = (request: Request): string | null => {
+  const reading = readIdempotencyKey(request.headers.get("Idempotency-Key"));
+  if (!reading.ok) {
+    throw new Rejection(400, "bad_idempotency_key", { message: BAD_KEY_MESSAGE });
+  }
+  return reading.key;
+};
+
+const sessionIdOf = async (
+  call: Call,
+  given: string | undefined,
+  key: string | null,
+): Promise<string> => {
+  if (given !== undefined) {
+    return given;
+  }
+  return key === null ? crypto.randomUUID() : sessionIdFor(call.principal.subjectId, key);
+};
+
 const storedResponse = async (call: Call, agent: ChatAgent): Promise<Response> => {
   const { env } = call.context;
+  const key = idempotencyKeyOf(call.context.request);
   const parsed = parseStoredTurn(call.body, agent);
   await assertPinned(parsed.contract, parsed.contractHash);
-  const sessionId = parsed.sessionId ?? crypto.randomUUID();
-  const store = sessionPort(sessionStub(env, call.tenant.id, sessionId));
+  const sessionId = await sessionIdOf(call, parsed.sessionId, key);
+  const store = sessionPort(sessionStub(env, call.tenant.id, sessionId), {
+    owner: call.principal.subjectId,
+    key,
+    fingerprint: await fingerprintOf(call.body),
+    tail: agent.input.maxMessages,
+  });
   return deliver(call, async (emit, delivery) => {
     const send = deltaEmitter(call, emit, delivery);
     const run = await runSessionTurn({
@@ -244,7 +300,7 @@ const respond = async (context: RequestContext, tenant: Tenant): Promise<Respons
     context,
     tenant,
     principal,
-    spend: spendFor(context, tenant, principal),
+    spend: await spendFor(context, tenant, principal),
     body: new TextDecoder().decode(rawBody),
   };
   const { agent } = tenant;

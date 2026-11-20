@@ -15,6 +15,7 @@ export interface Finished {
   costNanoEur: number;
   allCalls?: { name: string; input: Record<string, unknown> }[];
   serverResults?: string[];
+  replayed?: true;
 }
 
 export interface Delivery {

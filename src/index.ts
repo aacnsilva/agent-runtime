@@ -6,10 +6,11 @@ import { handleAttest } from "./gateway/handle-attest";
 import { handleRun } from "./gateway/handle-run";
 import { handleSession } from "./gateway/handle-session";
 import { handlePreflight, handleStatus } from "./gateway/handle-status";
-import { json, Rejection, rejectionResponse } from "./http/respond";
+import { INTERNAL_BODY, json, Rejection, rejectionResponse } from "./http/respond";
 import { logEvent } from "./observability/log";
 
 export { Knowledge } from "./knowledge/knowledge-object";
+export { ModelHealth } from "./llm/health-object";
 export { Metrics } from "./observability/metrics-object";
 export { Ledger } from "./quota/ledger-object";
 export { Subject } from "./quota/subject-object";
@@ -104,14 +105,18 @@ const respond = async (context: RequestContext): Promise<Response> => {
       requestId: context.requestId,
       message: error instanceof Error ? error.message : "unknown",
     });
-    return json({ error: "internal", message: "Something went wrong. Try again." }, 500);
+    return json(INTERNAL_BODY, 500);
   }
 };
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const startedAt = Date.now();
-    const context = { request, env, ctx, requestId: crypto.randomUUID(), startedAt };
+    const abort = new AbortController();
+    request.signal.addEventListener("abort", () => {
+      abort.abort();
+    });
+    const context = { request, env, ctx, abort, requestId: crypto.randomUUID(), startedAt };
     const response = await respond(context);
     const tagged = new Response(response.body, response);
     tagged.headers.set("x-request-id", context.requestId);

@@ -69,7 +69,9 @@ export interface Listeners {
   onTool?: () => void;
 }
 
+export type FailureKind = "unavailable" | "rejected" | "timeout" | "aborted";
+
 export interface Provider {
   complete: (model: ModelId, request: ModelRequest, listeners: Listeners) => Promise<ModelReply>;
-  isTimeout: (error: unknown) => boolean;
+  failureKind: (error: unknown) => FailureKind;
 }

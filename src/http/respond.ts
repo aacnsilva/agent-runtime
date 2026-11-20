@@ -18,6 +18,8 @@ export interface RejectionDetail {
   retryAfterSeconds?: number;
 }
 
+export const INTERNAL_BODY = { error: "internal", message: "Something went wrong. Try again." };
+
 export const json = (body: unknown, status: number, extra?: Headers): Response => {
   const headers = new Headers(extra);
   headers.set("content-type", "application/json; charset=utf-8");

@@ -1,6 +1,6 @@
 import type { Breaker } from "./breaker";
 import type { Candidates, ModelId } from "./catalog";
-import type { ModelReply } from "./provider";
+import type { FailureKind, ModelReply } from "./provider";
 
 export interface Routed {
   reply: ModelReply;
@@ -12,6 +12,7 @@ export interface RoutingFailureDetail {
   model: ModelId;
   attempts: number;
   billable: boolean;
+  aborted: boolean;
 }
 
 export class RoutingFailure extends Error {
@@ -27,14 +28,27 @@ export interface RouteOptions {
   candidates: Candidates;
   breaker: Breaker;
   call: (model: ModelId) => Promise<ModelReply>;
-  isBillable: (error: unknown) => boolean;
+  failureKind: (error: unknown) => FailureKind;
+  hasStarted: () => boolean;
 }
+
+const COUNTS_AGAINST_MODEL: Record<FailureKind, boolean> = {
+  unavailable: true,
+  timeout: true,
+  rejected: false,
+  aborted: false,
+};
 
 export const routeWithFallback = async (options: RouteOptions): Promise<Routed> => {
   const { breaker } = options;
   const ordered = breaker.order(options.candidates, Date.now());
   let attempts = 0;
-  let last: RoutingFailureDetail = { model: ordered[0], attempts, billable: false };
+  let last: RoutingFailureDetail = {
+    model: ordered[0],
+    attempts,
+    billable: false,
+    aborted: false,
+  };
   for (const model of ordered) {
     attempts += 1;
     try {
@@ -42,9 +56,13 @@ export const routeWithFallback = async (options: RouteOptions): Promise<Routed> 
       breaker.succeeded(model);
       return { reply, model, attempts };
     } catch (cause) {
-      breaker.failed(model, Date.now());
-      last = { model, attempts, billable: options.isBillable(cause) };
-      if (last.billable) {
+      const kind = options.failureKind(cause);
+      if (COUNTS_AGAINST_MODEL[kind]) {
+        breaker.failed(model, Date.now());
+      }
+      const billable = options.hasStarted() || kind === "timeout";
+      last = { model, attempts, billable, aborted: kind === "aborted" };
+      if (billable || last.aborted) {
         break;
       }
     }

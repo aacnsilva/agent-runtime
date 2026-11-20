@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { ask, askStream, createTenant, postRun } from "./support/client.ts";
+import { ask, askStream, createTenant, postRun, providerCalls } from "./support/client.ts";
 
 const SAMPLES = 15;
 const MOCK_FIRST_TOKEN_MS = 30;
@@ -38,8 +38,10 @@ describe("performance budgets (local worker, fake provider)", () => {
   });
 
   it("adds under 60 ms to a complete answer at the median", async () => {
-    const medianMs = await sample(async () => (await ask(tenant, "How do I export?")).text());
-    expect(medianMs).toBeLessThan(60);
+    const medianMs = await sample(async () => (await ask(tenant, "PERFPROBE export?")).text());
+    const provider = (await providerCalls()).filter((call) => call.question.includes("PERFPROBE"));
+    expect(provider).toHaveLength(SAMPLES);
+    expect(medianMs - median(provider.map((call) => call.tookMs))).toBeLessThan(60);
   });
 
   it("delivers the first streamed text within 60 ms of the provider's first token", async () => {

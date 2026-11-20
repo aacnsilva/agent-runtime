@@ -1,3 +1,5 @@
+import { INTERNAL_BODY } from "../http/respond";
+import { logEvent } from "../observability/log";
 import type { RequestContext } from "./context";
 
 export type StreamEvent = Record<string, unknown>;
@@ -17,14 +19,31 @@ export const streamResponse = (
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
   const writer = writable.getWriter();
   const encoder = new TextEncoder();
+  const clientLeft = (): void => {
+    context.abort.abort();
+  };
   const send = async (event: StreamEvent): Promise<void> => {
-    await writer.write(encoder.encode(`data: ${JSON.stringify(event)}\n\n`)).catch(() => undefined);
+    await writer.write(encoder.encode(`data: ${JSON.stringify(event)}\n\n`)).catch(clientLeft);
+  };
+  const lastEvent = async (): Promise<StreamEvent> => {
+    try {
+      return await run((event) => void send(event));
+    } catch (error) {
+      logEvent("stream_failed", {
+        requestId: context.requestId,
+        message: error instanceof Error ? error.message : "unknown",
+      });
+      return { type: "error", ...INTERNAL_BODY };
+    }
   };
   const work = async (): Promise<void> => {
-    const last = await run((event) => void send(event));
-    await send(last);
-    await writer.close().catch(() => undefined);
+    try {
+      await send(await lastEvent());
+    } finally {
+      await writer.close().catch(() => undefined);
+    }
   };
+  writer.closed.catch(clientLeft);
   context.ctx.waitUntil(work());
   return new Response(readable, { status: 200, headers: sseHeaders() });
 };

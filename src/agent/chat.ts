@@ -15,7 +15,8 @@ import type { QuotaBegin, QuotaGrant, QuotaRefund, QuotaRefusal } from "../quota
 import type { ChatAgent, Contract } from "../tenants/schema";
 import { latestQuestion, refusalFor, systemFor, systemTail } from "./chat-prompt";
 import type { Spend } from "./spend";
-import { callModel, releasePool, reservePool, UPSTREAM_BODY } from "./spend";
+import type { FailureReport } from "./spend";
+import { callModel, failureReport, releasePool, reservePool } from "./spend";
 
 export interface QuotaPort {
   begin: (input: QuotaBegin) => Promise<QuotaGrant | QuotaRefusal>;
@@ -51,6 +52,7 @@ export interface RoundResult {
   attempts: number;
   usage: Usage;
   costNanoEur: number;
+  promptChars: number;
 }
 
 const TOOL_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -116,12 +118,16 @@ const problemWith = (
   return content.length === 0 ? "unreadable" : null;
 };
 
-type Measured = Pick<RoundResult, "model" | "attempts" | "usage" | "costNanoEur">;
+type Measured = Pick<RoundResult, "model" | "attempts" | "usage" | "costNanoEur" | "promptChars">;
 
-const failure = (code: string, body: Record<string, unknown>, measured: Measured): RoundResult => ({
+const unreadable = (code: string): FailureReport => ({
   status: 502,
   outcome: code,
-  body,
+  body: { error: code },
+});
+
+const failure = (report: FailureReport, measured: Measured): RoundResult => ({
+  ...report,
   content: [],
   calls: [],
   allCalls: [],
@@ -172,7 +178,8 @@ const success = (
 export const chatRound = async (turn: ChatTurn, listeners: Listeners): Promise<RoundResult> => {
   const { agent, spend } = turn;
   const tail = systemTail(agent, turn.messages, turn.context);
-  const reservation = await reservePool(spend, promptChars(turn, tail), agent.maxOutputTokens);
+  const chars = promptChars(turn, tail);
+  const reservation = await reservePool(spend, chars, agent.maxOutputTokens);
   const grant = await beginQuota(turn).catch(async (error: unknown) => {
     await releasePool(spend, reservation);
     throw error;
@@ -200,17 +207,18 @@ export const chatRound = async (turn: ChatTurn, listeners: Listeners): Promise<R
     attempts: outcome.attempts,
     usage: outcome.usage,
     costNanoEur: outcome.costNanoEur,
+    promptChars: chars,
   };
   if (!outcome.ok) {
     await refund();
-    return failure(outcome.billable ? "upstream_billed" : "upstream", UPSTREAM_BODY, measured);
+    return failure(failureReport(outcome), measured);
   }
   const result = success(turn, outcome.reply, grant);
   if (result === null) {
     await refund();
     const code =
       problemWith(turn, outcome.reply, publicBlocks(agent, outcome.reply.blocks)) ?? "unreadable";
-    return failure(code, { error: code }, measured);
+    return failure(unreadable(code), measured);
   }
   return { ...result, ...measured };
 };
