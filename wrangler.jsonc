@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "agent-runtime",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "observability": { "enabled": true },
+  "durable_objects": {
+    "bindings": [
+      { "name": "LEDGER", "class_name": "Ledger" },
+      { "name": "REGISTRY", "class_name": "Registry" },
+      { "name": "METRICS", "class_name": "Metrics" },
+    ],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Ledger", "Registry", "Metrics"] }],
+}

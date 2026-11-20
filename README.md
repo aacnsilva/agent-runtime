@@ -13,12 +13,12 @@ The agent core runs the plan, act, observe loop and calls the three other module
 
 Each diagram has an editable source in [`docs/design`](docs/design). Open the `.excalidraw` file at [excalidraw.com](https://excalidraw.com) or with the Excalidraw editor extension.
 
-| Module | Diagram | Source |
-|---|---|---|
-| Overview | [PNG](docs/design/00-overview.png) | [`00-overview.excalidraw`](docs/design/00-overview.excalidraw) |
-| Gateway | [PNG](docs/design/01-gateway.png) | [`01-gateway.excalidraw`](docs/design/01-gateway.excalidraw) |
-| Tools registry | [PNG](docs/design/02-tools-registry.png) | [`02-tools-registry.excalidraw`](docs/design/02-tools-registry.excalidraw) |
-| LLM routing | [PNG](docs/design/03-llm-routing.png) | [`03-llm-routing.excalidraw`](docs/design/03-llm-routing.excalidraw) |
+| Module           | Diagram                                    | Source                                                                         |
+| ---------------- | ------------------------------------------ | ------------------------------------------------------------------------------ |
+| Overview         | [PNG](docs/design/00-overview.png)         | [`00-overview.excalidraw`](docs/design/00-overview.excalidraw)                 |
+| Gateway          | [PNG](docs/design/01-gateway.png)          | [`01-gateway.excalidraw`](docs/design/01-gateway.excalidraw)                   |
+| Tools registry   | [PNG](docs/design/02-tools-registry.png)   | [`02-tools-registry.excalidraw`](docs/design/02-tools-registry.excalidraw)     |
+| LLM routing      | [PNG](docs/design/03-llm-routing.png)      | [`03-llm-routing.excalidraw`](docs/design/03-llm-routing.excalidraw)           |
 | Multi-tenant RAG | [PNG](docs/design/04-multi-tenant-rag.png) | [`04-multi-tenant-rag.excalidraw`](docs/design/04-multi-tenant-rag.excalidraw) |
 
 ## Tenants, subjects and plans
@@ -27,12 +27,12 @@ The runtime serves several products. Each product is a tenant, each end customer
 
 Tenants differ along four settings:
 
-| Setting | Options |
-|---|---|
-| Authentication | Device attestation plus a signed purchase, a signed account token carrying the plan, or anonymous with an allowed origin |
-| Limits | Messages per subject by plan, a monthly pool per tenant, and per IP for anonymous callers |
-| Conversation state | Stored by the runtime, or stateless, where the client sends the history and nothing is kept |
-| Tool execution | In the runtime, on the client device, or no tools |
+| Setting            | Options                                                                                                                  |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| Authentication     | Device attestation plus a signed purchase, a signed account token carrying the plan, or anonymous with an allowed origin |
+| Limits             | Messages per subject by plan, a monthly pool per tenant, and per IP for anonymous callers                                |
+| Conversation state | Stored by the runtime, or stateless, where the client sends the history and nothing is kept                              |
+| Tool execution     | In the runtime, on the client device, or no tools                                                                        |
 
 The runtime does not own accounts or billing. Each product proves who the subject is and which plan they bought through its credential, and the runtime verifies that credential and enforces the plan.
 
