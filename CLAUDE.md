@@ -48,10 +48,12 @@ them and must pass before a commit is pushed.
 
 ## Commands
 
-| Command         | What it does                                                |
-| --------------- | ----------------------------------------------------------- |
-| `npm run demo`  | Local worker, fake provider, example tenant, sample traffic |
-| `npm run dev`   | Local worker with the real provider (needs `.dev.vars`)     |
-| `npm run check` | Format, lint, types, unit tests and end-to-end tests        |
-| `npm run test`  | Unit tests                                                  |
-| `npm run e2e`   | End-to-end tests against a local worker                     |
+| Command              | What it does                                                |
+| -------------------- | ----------------------------------------------------------- |
+| `npm run demo`       | Local worker, fake provider, example tenant, sample traffic |
+| `npm run dev`        | Local worker with the real provider (needs `.dev.vars`)     |
+| `npm run check`      | Format, lint, types, unit tests and end-to-end tests        |
+| `npm run test`       | Unit tests                                                  |
+| `npm run e2e`        | End-to-end tests against a local worker                     |
+| `npm run deploy:dev` | Deploy the development Worker (needs `wrangler login`)      |
+| `npm run deploy`     | Deploy the production Worker                                |

@@ -17,7 +17,9 @@
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run e2e",
     "prepare": "husky",
     "demo": "node --experimental-strip-types e2e/demo.ts",
-    "evals": "node --experimental-strip-types evals/run.ts"
+    "evals": "node --experimental-strip-types evals/run.ts",
+    "deploy:dev": "wrangler deploy --env dev",
+    "deploy": "wrangler deploy"
   },
   "lint-staged": {
     "*.{ts,js}": [
