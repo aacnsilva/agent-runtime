@@ -19,7 +19,10 @@ export default defineConfig(
     },
   },
   { files: ["**/*.js"], extends: [tseslint.configs.disableTypeChecked] },
-  { files: ["e2e/**", "eslint/**", "*.js"], languageOptions: { globals: globals.node } },
+  {
+    files: ["e2e/**", "evals/**", "eslint/**", "*.js"],
+    languageOptions: { globals: globals.node },
+  },
   {
     plugins: {
       local: { rules: { "no-comments": noComments } },

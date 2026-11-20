@@ -56,7 +56,7 @@ export const answer = async (
     listeners: onText === undefined ? {} : { onText },
     request: {
       maxOutputTokens: agent.maxOutputTokens,
-      effort: agent.effort,
+      effort: input.spend.effortOverride ?? agent.effort,
       system: agent.system,
       systemTail: [],
       messages: input.messages,

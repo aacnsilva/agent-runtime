@@ -280,6 +280,11 @@
         </header>
         <div class="filters">
           <select id="tenant" aria-label="Tenant"></select>
+          <select id="traffic" aria-label="Traffic">
+            <option value="">All traffic</option>
+            <option value="real">Without eval runs</option>
+            <option value="evals">Eval runs only</option>
+          </select>
           <div class="ranges" id="ranges" role="group" aria-label="Time range"></div>
           <span class="spacer"></span>
           <label
@@ -352,7 +357,7 @@
         ["ttftP50", "First text, median", "var(--s3)"],
       ];
       const BOX = { width: 720, height: 230, left: 46, right: 10, top: 10, bottom: 24 };
-      const state = { hours: 24, tenant: "", timer: 0 };
+      const state = { hours: 24, tenant: "", traffic: "", timer: 0 };
       const $ = (id) => document.getElementById(id);
       const tooltip = $("tooltip");
 
@@ -749,6 +754,7 @@
           [
             ["Time"],
             ["Tenant"],
+            ["Kind"],
             ["Outcome"],
             ["Status", true],
             ["Model"],
@@ -763,6 +769,7 @@
           summary.recent.map((event) => [
             new Date(event.at).toLocaleTimeString("en"),
             event.tenant,
+            event.evaluated ? "eval" : "",
             event.outcome,
             event.status,
             event.model ?? "–",
@@ -800,6 +807,7 @@
       const load = async () => {
         const query = new URLSearchParams({ hours: String(state.hours) });
         if (state.tenant !== "") query.set("tenant", state.tenant);
+        if (state.traffic !== "") query.set("traffic", state.traffic);
         try {
           const response = await fetch(`/admin/api/metrics?${query}`, {
             headers: { authorization: `Bearer ${token()}` },
@@ -850,6 +858,10 @@
       legend($("latency-legend"), LINES, true);
       $("tenant").addEventListener("change", (event) => {
         state.tenant = event.target.value;
+        load();
+      });
+      $("traffic").addEventListener("change", (event) => {
+        state.traffic = event.target.value;
         load();
       });
       $("refresh").addEventListener("click", load);

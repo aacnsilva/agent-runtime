@@ -23,10 +23,13 @@ const CREATE_TABLE = `
     output_tokens INTEGER NOT NULL,
     cache_read_tokens INTEGER NOT NULL,
     cache_write_tokens INTEGER NOT NULL,
-    cost_nano_eur INTEGER NOT NULL
+    cost_nano_eur INTEGER NOT NULL,
+    evaluated INTEGER NOT NULL DEFAULT 0
   )`;
 const CREATE_INDEX = "CREATE INDEX IF NOT EXISTS events_at ON events (at)";
-const INSERT = `INSERT INTO events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+const ADD_EVALUATED = "ALTER TABLE events ADD COLUMN evaluated INTEGER NOT NULL DEFAULT 0";
+const HAS_EVALUATED = "SELECT 1 FROM pragma_table_info('events') WHERE name = 'evaluated'";
+const INSERT = `INSERT INTO events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 const SELECT = `SELECT * FROM events WHERE at >= ? ORDER BY at ASC LIMIT ?`;
 
 type Row = Record<string, SqlStorageValue>;
@@ -44,6 +47,7 @@ const eventOf = (row: Row): RunEvent => ({
   outcome: textOf(row["outcome"]),
   status: numberOf(row["status"]),
   streamed: numberOf(row["streamed"]) === 1,
+  evaluated: numberOf(row["evaluated"]) === 1,
   model: typeof row["model"] === "string" ? row["model"] : null,
   attempts: numberOf(row["attempts"]),
   latencyMs: numberOf(row["latency_ms"]),
@@ -62,6 +66,9 @@ export class Metrics extends DurableObject<Env> {
     super(ctx, env);
     ctx.storage.sql.exec(CREATE_TABLE);
     ctx.storage.sql.exec(CREATE_INDEX);
+    if (ctx.storage.sql.exec(HAS_EVALUATED).toArray().length === 0) {
+      ctx.storage.sql.exec(ADD_EVALUATED);
+    }
   }
 
   record(event: RunEvent): void {
@@ -82,6 +89,7 @@ export class Metrics extends DurableObject<Env> {
       event.cacheReadTokens,
       event.cacheWriteTokens,
       event.costNanoEur,
+      event.evaluated ? 1 : 0,
     );
     this.recorded += 1;
     if (this.recorded % PRUNE_EVERY === 0) {

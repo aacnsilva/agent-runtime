@@ -4,3 +4,4 @@ node_modules
 *.local.json
 tenants.local/
 coverage
+results/latest.json

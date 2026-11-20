@@ -13,11 +13,13 @@ export interface Finished {
   attempts: number;
   usage: Usage;
   costNanoEur: number;
+  toolsCalled?: string[];
 }
 
 export interface Delivery {
   streamed: boolean;
   ttftMs: number | null;
+  evaluated: boolean;
 }
 
 const baseEvent = (context: RequestContext, tenantId: string): RunEvent => ({
@@ -27,6 +29,7 @@ const baseEvent = (context: RequestContext, tenantId: string): RunEvent => ({
   outcome: "",
   status: 0,
   streamed: false,
+  evaluated: false,
   model: null,
   attempts: 0,
   latencyMs: Date.now() - context.startedAt,
@@ -51,6 +54,7 @@ export const recordFinished = ({ context, tenantId, run, delivery }: Recorded): 
     outcome: run.outcome,
     status: run.status,
     streamed: delivery.streamed,
+    evaluated: delivery.evaluated,
     model: run.model,
     attempts: run.attempts,
     ttftMs: delivery.ttftMs,

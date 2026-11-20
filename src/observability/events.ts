@@ -5,6 +5,7 @@ export interface RunEvent {
   outcome: string;
   status: number;
   streamed: boolean;
+  evaluated: boolean;
   model: string | null;
   attempts: number;
   latencyMs: number;

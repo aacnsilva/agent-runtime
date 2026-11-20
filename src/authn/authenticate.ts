@@ -3,6 +3,7 @@ import { Rejection } from "../http/respond";
 import type { Tenant } from "../tenants/schema";
 import { verifyAccountToken } from "./account-token";
 import { authenticateDevice } from "./device-authn";
+import { evalPrincipal } from "./eval-pass";
 import type { Principal } from "./principal";
 
 const BEARER = "Bearer ";
@@ -28,6 +29,8 @@ export const principalFor = (tenant: Tenant, subjectId: string, planId: string):
     messagesPerMonth: plan.messagesPerMonth,
     tier: plan.tier ?? tenant.agent.tier,
     authenticated: true,
+    evaluated: false,
+    effortOverride: null,
   };
 };
 
@@ -47,6 +50,10 @@ export const authenticate = async (
   const { request } = context;
   const { authn } = tenant;
   assertOrigin(request, tenant);
+  const evaluator = await evalPrincipal(request, tenant);
+  if (evaluator !== null) {
+    return evaluator;
+  }
   switch (authn.kind) {
     case "anonymous":
       return {
@@ -55,6 +62,8 @@ export const authenticate = async (
         messagesPerMonth: null,
         tier: tenant.agent.tier,
         authenticated: false,
+        evaluated: false,
+        effortOverride: null,
       };
     case "account_token": {
       const claims = await verifyAccountToken(bearerToken(request), authn, Date.now());

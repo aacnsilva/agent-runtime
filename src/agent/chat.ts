@@ -44,6 +44,7 @@ export interface RoundResult {
   body: Record<string, unknown>;
   content: ReplyBlock[];
   calls: ToolUseBlock[];
+  toolsCalled: string[];
   quota: QuotaView | null;
   model: ModelId | null;
   attempts: number;
@@ -117,6 +118,7 @@ const failure = (code: string, body: Record<string, unknown>, measured: Measured
   body,
   content: [],
   calls: [],
+  toolsCalled: [],
   quota: null,
   ...measured,
 });
@@ -136,6 +138,7 @@ const success = (
       body: { stopReason: "end_turn", content, quota },
       content,
       calls: [],
+      toolsCalled: [],
       quota,
     };
   }
@@ -146,7 +149,15 @@ const success = (
   const calls = content.filter((block) => block.type === "tool_use");
   const stopReason = calls.length > 0 ? "tool_use" : "end_turn";
   const outcome = calls.length > 0 ? "tool_round" : "answered";
-  return { status: 200, outcome, body: { stopReason, content, quota }, content, calls, quota };
+  return {
+    status: 200,
+    outcome,
+    body: { stopReason, content, quota },
+    content,
+    calls,
+    toolsCalled: calls.map((call) => call.name),
+    quota,
+  };
 };
 
 export const chatRound = async (turn: ChatTurn, listeners: Listeners): Promise<RoundResult> => {
@@ -165,7 +176,7 @@ export const chatRound = async (turn: ChatTurn, listeners: Listeners): Promise<R
     listeners,
     request: {
       maxOutputTokens: agent.maxOutputTokens,
-      effort: agent.effort,
+      effort: spend.effortOverride ?? agent.effort,
       system: systemFor(agent, turn.contract),
       systemTail: tail,
       messages: turn.messages,

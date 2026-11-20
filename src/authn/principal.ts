@@ -6,4 +6,6 @@ export interface Principal {
   messagesPerMonth: number | null;
   tier: Tier;
   authenticated: boolean;
+  evaluated: boolean;
+  effortOverride: "low" | "medium" | "high" | null;
 }

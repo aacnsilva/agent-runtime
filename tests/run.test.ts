@@ -82,6 +82,7 @@ const inputFor = (tier: Tier, provider: Provider, book: Book): RunInput => ({
   spend: {
     tenant,
     tier,
+    effortOverride: null,
     ip: "1.1.1.1",
     skipNetworkLimit: false,
     provider,

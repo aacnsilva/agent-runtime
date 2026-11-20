@@ -26,6 +26,7 @@ type Json = Record<string, unknown>;
 interface TenantOverrides {
   limits?: Json;
   agent?: Json;
+  extra?: Json;
 }
 
 const demoTenant = async (): Promise<Json> =>
@@ -41,6 +42,7 @@ export const createTenant = async (overrides: TenantOverrides = {}): Promise<str
     id,
     limits: { ...(base["limits"] as Json), ...overrides.limits },
     agent: { ...(base["agent"] as Json), ...overrides.agent },
+    ...overrides.extra,
   };
   const response = await fetch(`${runtimeUrl()}/admin/api/tenants/${id}`, {
     method: "PUT",

@@ -1,0 +1,110 @@
+import { describe, expect, it } from "vitest";
+
+import type { Observation } from "../evals/grade";
+import { byGroup, compareToBaseline, grade, hasAmount, languageOf } from "../evals/grade";
+
+const LANGUAGES = {
+  en: "\\b(the|is|and|you|this|what)\\b",
+  pt: "\\b(que|não|uma|este|para|com)\\b",
+};
+
+const seen = (overrides: Partial<Observation> = {}): Observation => ({
+  answer: "This month you spent €89.75 on extras.",
+  written: ["This month you spent €89.75 on extras."],
+  tools: ["summarize"],
+  onTopic: null,
+  stopReason: "end_turn",
+  modelCalls: 2,
+  seconds: 1.5,
+  ...overrides,
+});
+
+describe("eval grading", () => {
+  it("passes a case whose every check holds", () => {
+    const expectation = {
+      anyTool: ["summarize", "find"],
+      noTools: ["propose"],
+      amounts: ["89.75"],
+      contains: ["extras"],
+      excludes: ["sorry"],
+      language: "en",
+      stopReason: "end_turn",
+      maxModelCalls: 3,
+    };
+    expect(grade(expectation, seen(), LANGUAGES)).toEqual([]);
+  });
+
+  it("says exactly what failed", () => {
+    const failures = grade(
+      {
+        tools: ["find"],
+        noAnyTool: true,
+        contains: ["Açores"],
+        amounts: ["12"],
+        onTopic: true,
+        maxSeconds: 1,
+      },
+      seen(),
+    );
+    expect(failures).toEqual([
+      "did not call find",
+      "called summarize but should call no tool",
+      'answer lacks "Açores"',
+      "answer lacks the amount 12",
+      "onTopic was null, expected true",
+      "took 1.5 s, more than 1 s",
+    ]);
+  });
+
+  it("compares text without case or accents", () => {
+    expect(grade({ contains: ["acores"] }, seen({ answer: "A viagem aos AÇORES" }))).toEqual([]);
+    expect(grade({ containsAny: ["nope", "viagem"] }, seen({ answer: "A viagem" }))).toEqual([]);
+  });
+
+  it.each([
+    ["89,75 €", "89.75", true],
+    ["€89.75", "89.75", true],
+    ["1 250,00", "1250", true],
+    ["1.250", "1250", true],
+    ["3000", "3000", true],
+    ["3000.00", "3000", true],
+    ["189.75", "89.75", false],
+    ["89.756", "89.75", false],
+    ["30000", "3000", false],
+    ["89.70", "89.75", false],
+  ])("reads %j as the amount %s: %s", (text, amount, expected) => {
+    expect(hasAmount(text, amount)).toBe(expected);
+  });
+
+  it("checks the language of every long line the model wrote, including before a tool call", () => {
+    const written = [
+      "Let me check what you spent this month and the last.",
+      "Este mês não gastou nada com uma coisa.",
+    ];
+    const failures = grade({ language: "pt" }, seen({ written }), LANGUAGES);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain("Let me check");
+    expect(languageOf("89,75 €", LANGUAGES)).toBeNull();
+  });
+
+  it("reports what changed against a baseline", () => {
+    const baseline = [
+      { id: "a", group: "reads", passed: true },
+      { id: "b", group: "reads", passed: false },
+    ];
+    const results = [
+      { id: "a", group: "reads", passed: false },
+      { id: "b", group: "reads", passed: true },
+      { id: "c", group: "writes", passed: true },
+    ];
+    expect(compareToBaseline(results, baseline)).toEqual({
+      nowFailing: ["a"],
+      nowPassing: ["b"],
+      added: ["c"],
+    });
+    expect(byGroup(results)).toEqual({
+      reads: { cases: 2, passed: 1 },
+      writes: { cases: 1, passed: 1 },
+    });
+  });
+});

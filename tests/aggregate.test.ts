@@ -12,6 +12,7 @@ const event = (overrides: Partial<RunEvent>): RunEvent => ({
   outcome: "answered",
   status: 200,
   streamed: false,
+  evaluated: false,
   model: "claude-haiku-5-5",
   attempts: 1,
   latencyMs: 100,

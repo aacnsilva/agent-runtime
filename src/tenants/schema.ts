@@ -188,6 +188,13 @@ const knowledgeSchema = z.object({
   embeddingModel: z.string().min(1).max(100).optional(),
 });
 
+const evalsSchema = z.object({
+  secretSha256: z.string().regex(/^[0-9a-f]{64}$/),
+  plan: planId.optional(),
+  tiers: z.array(tier).max(4).default([]),
+  efforts: z.array(effort).max(3).default([]),
+});
+
 const hostname = z.string().regex(/^[a-z0-9]([a-z0-9.-]{0,200}[a-z0-9])?$/);
 
 type Draft = z.infer<typeof draftSchema>;
@@ -245,10 +252,25 @@ const draftSchema = z.object({
   limits: limitsSchema,
   egress: z.object({ allowedHosts: z.array(hostname).max(20) }).default({ allowedHosts: [] }),
   knowledge: knowledgeSchema.optional(),
+  evals: evalsSchema.optional(),
   agent: agentSchema,
 });
 
 export const tenantSchema = draftSchema
+  .refine((tenant) => tenant.evals?.plan === undefined || tenant.evals.plan in tenant.plans, {
+    message: "the eval plan must be defined in plans",
+    path: ["evals"],
+  })
+  .refine(
+    (tenant) =>
+      tenant.evals === undefined ||
+      tenant.authn.kind !== "app_attest" ||
+      tenant.authn.storeEnvironment === "Sandbox",
+    {
+      message: "a tenant that serves production purchases cannot accept eval runs",
+      path: ["evals"],
+    },
+  )
   .refine((tenant) => planNames(tenant).every((name) => name in tenant.plans), {
     message: "every plan named by the authenticator must be defined in plans",
     path: ["plans"],
@@ -291,3 +313,4 @@ export type ChatInputLimits = ChatAgent["input"];
 export type Gate = z.infer<typeof gateSchema>;
 export type InputLimits = z.infer<typeof gatedInput>;
 export type Plan = z.infer<typeof planSchema>;
+export type Effort = z.infer<typeof effort>;

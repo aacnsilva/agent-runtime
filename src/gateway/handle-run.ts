@@ -43,6 +43,7 @@ const spendFor = (context: RequestContext, tenant: Tenant, principal: Principal)
   return {
     tenant,
     tier: principal.tier,
+    effortOverride: principal.effortOverride,
     ip: clientIp(context.request),
     skipNetworkLimit: principal.authenticated,
     provider: createAnthropicProvider({
@@ -53,6 +54,23 @@ const spendFor = (context: RequestContext, tenant: Tenant, principal: Principal)
   };
 };
 
+const traced = (call: Call, run: Finished): Finished =>
+  call.principal.evaluated
+    ? {
+        ...run,
+        body: {
+          ...run.body,
+          eval: {
+            model: run.model,
+            modelCalls: run.attempts,
+            tools: run.toolsCalled ?? [],
+            usage: run.usage,
+            costNanoEur: run.costNanoEur,
+          },
+        },
+      }
+    : run;
+
 const finalEvent = (run: Finished): StreamEvent => ({
   type: run.status === 200 ? "done" : "error",
   ...run.body,
@@ -62,15 +80,17 @@ type Work = (emit: Emit | undefined, delivery: Delivery) => Promise<Finished>;
 
 const deliver = async (call: Call, work: Work): Promise<Response> => {
   const { context, tenant } = call;
+  const { evaluated } = call.principal;
   if (!wantsStream(context.request)) {
-    const delivery = { streamed: false, ttftMs: null };
-    const run = await work(undefined, delivery);
+    const delivery = { streamed: false, ttftMs: null, evaluated };
+    const run = traced(call, await work(undefined, delivery));
     recordFinished({ context, tenantId: tenant.id, run, delivery });
     return json(run.body, run.status);
   }
-  const delivery: Delivery = { streamed: true, ttftMs: null };
+  const delivery: Delivery = { streamed: true, ttftMs: null, evaluated };
   return streamResponse(context, async (emit) => {
-    const run = await work(emit, delivery).catch((error: unknown) => failedMidStream(error));
+    const finished = await work(emit, delivery).catch((error: unknown) => failedMidStream(error));
+    const run = traced(call, finished);
     recordFinished({ context, tenantId: tenant.id, run, delivery });
     return finalEvent(run);
   });
@@ -176,16 +196,6 @@ const statelessResponse = async (call: Call, agent: ChatAgent): Promise<Response
     context: parsed.context,
     toolRounds: parsed.toolRounds,
   };
-  if (!wantsStream(call.context.request)) {
-    const run = await chatRound(turn, {});
-    recordFinished({
-      context: call.context,
-      tenantId: call.tenant.id,
-      run,
-      delivery: { streamed: false, ttftMs: null },
-    });
-    return json(run.body, run.status);
-  }
   return deliver(call, async (emit, delivery) =>
     chatRound(turn, heldListeners(agent, deltaEmitter(call, emit, delivery))),
   );

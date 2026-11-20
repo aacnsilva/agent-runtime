@@ -44,6 +44,7 @@ const combine = (total: RoundResult | null, round: RoundResult): RoundResult =>
     : {
         ...round,
         attempts: total.attempts + round.attempts,
+        toolsCalled: [...total.toolsCalled, ...round.toolsCalled],
         usage: addUsage(total.usage, round.usage),
         costNanoEur: total.costNanoEur + round.costNanoEur,
       };
@@ -145,6 +146,7 @@ const TOO_MANY_ROUNDS = {
   body: { error: "too_many_rounds", message: "That took too many steps. Ask again more simply." },
   content: [],
   calls: [],
+  toolsCalled: [],
   quota: null,
   model: null,
   attempts: 0,

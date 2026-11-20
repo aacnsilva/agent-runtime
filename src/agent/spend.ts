@@ -25,6 +25,7 @@ export interface LedgerPort {
 export interface Spend {
   tenant: Tenant;
   tier: Tier;
+  effortOverride: "low" | "medium" | "high" | null;
   ip: string;
   skipNetworkLimit: boolean;
   provider: Provider;

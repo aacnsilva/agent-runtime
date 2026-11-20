@@ -60,6 +60,7 @@ describe("observability", () => {
         "cacheReadTokens",
         "cacheWriteTokens",
         "costNanoEur",
+        "evaluated",
         "inputTokens",
         "latencyMs",
         "model",
