@@ -1,0 +1,1546 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tenants</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --plane: #f9f9f7;
+        --surface: #fcfcfb;
+        --ink: #0b0b0b;
+        --ink-2: #52514e;
+        --muted: #898781;
+        --grid: #e1e0d9;
+        --axis: #c3c2b7;
+        --border: rgba(11, 11, 11, 0.1);
+        --wash: rgba(11, 11, 11, 0.05);
+        --s1: #2a78d6;
+        --s2: #eb6834;
+        --s3: #1baf7a;
+        --s4: #eda100;
+        --s5: #e87ba4;
+        --critical: #d03b3b;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --plane: #0d0d0d;
+          --surface: #1a1a19;
+          --ink: #f0efec;
+          --ink-2: #c3c2b7;
+          --muted: #898781;
+          --grid: #2c2c2a;
+          --axis: #383835;
+          --border: rgba(255, 255, 255, 0.1);
+          --wash: rgba(255, 255, 255, 0.06);
+          --s1: #3987e5;
+          --s2: #d95926;
+          --s3: #199e70;
+          --s4: #c98500;
+          --s5: #d55181;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--plane);
+        color: var(--ink);
+        font:
+          14px/1.45 system-ui,
+          -apple-system,
+          "Segoe UI",
+          sans-serif;
+      }
+      main {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 20px 16px 48px;
+      }
+      header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 4px 12px;
+        margin-bottom: 12px;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0;
+      }
+      h2 {
+        font-size: 14px;
+        margin: 0 0 2px;
+      }
+      .note {
+        color: var(--ink-2);
+        margin: 0;
+      }
+      .filters {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin: 12px 0 16px;
+      }
+      select,
+      button,
+      input {
+        font: inherit;
+        color: inherit;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 6px 10px;
+        min-height: 34px;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:hover {
+        background: var(--wash);
+      }
+      button[aria-pressed="true"] {
+        background: var(--ink);
+        color: var(--surface);
+        border-color: var(--ink);
+      }
+      :focus-visible {
+        outline: 2px solid var(--s1);
+        outline-offset: 2px;
+      }
+      .ranges {
+        display: flex;
+        gap: 4px;
+      }
+      .spacer {
+        flex: 1;
+      }
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 14px 16px;
+      }
+      .tiles {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .tile .label {
+        color: var(--ink-2);
+      }
+      .tile .value {
+        font-size: 26px;
+        font-weight: 600;
+        line-height: 1.2;
+      }
+      .tile .sub {
+        color: var(--muted);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 14px;
+        margin: 6px 0 4px;
+        color: var(--ink-2);
+      }
+      .key {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+        margin-right: 6px;
+      }
+      .key.line {
+        height: 2px;
+        width: 14px;
+        border-radius: 1px;
+        vertical-align: middle;
+      }
+      svg {
+        display: block;
+        width: 100%;
+        height: auto;
+        overflow: visible;
+      }
+      svg text {
+        fill: var(--muted);
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+      }
+      .scroll {
+        overflow-x: auto;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-variant-numeric: tabular-nums;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 6px 10px 6px 0;
+        border-bottom: 1px solid var(--grid);
+        white-space: nowrap;
+      }
+      th {
+        color: var(--ink-2);
+        font-weight: 500;
+      }
+      td.num,
+      th.num {
+        text-align: right;
+      }
+      .meter {
+        display: flex;
+        width: 88px;
+        height: 8px;
+        gap: 2px;
+        background: var(--grid);
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      .meter span {
+        height: 100%;
+      }
+      .empty {
+        color: var(--ink-2);
+        padding: 28px 0;
+        text-align: center;
+      }
+      #tooltip {
+        position: fixed;
+        pointer-events: none;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px 10px;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+        font-variant-numeric: tabular-nums;
+        z-index: 10;
+        min-width: 150px;
+      }
+      #tooltip .row {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      #tooltip .when {
+        color: var(--ink-2);
+        margin-bottom: 4px;
+      }
+      #signin {
+        max-width: 420px;
+        margin: 12vh auto 0;
+      }
+      #signin form {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+      }
+      #signin input {
+        flex: 1;
+      }
+      .error {
+        color: var(--critical);
+        margin: 8px 0 0;
+      }
+      .pages {
+        display: flex;
+        gap: 4px;
+      }
+      .pages a {
+        color: var(--ink-2);
+        text-decoration: none;
+        padding: 4px 10px;
+        border-radius: 8px;
+      }
+      .pages a:hover {
+        background: var(--wash);
+      }
+      .pages a[aria-current="page"] {
+        color: var(--ink);
+        background: var(--wash);
+        font-weight: 600;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 250px minmax(0, 1fr);
+        gap: 12px;
+        align-items: start;
+      }
+      @media (max-width: 760px) {
+        .layout {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+      aside ul {
+        list-style: none;
+        margin: 10px 0 0;
+        padding: 0;
+        display: grid;
+        gap: 4px;
+      }
+      aside li button {
+        width: 100%;
+        text-align: left;
+        border-color: transparent;
+        background: transparent;
+        min-height: 0;
+        padding: 8px 10px;
+      }
+      aside li button small {
+        display: block;
+        color: var(--muted);
+      }
+      aside li button[aria-current="true"] {
+        background: var(--wash);
+        border-color: var(--border);
+      }
+      .wide {
+        width: 100%;
+      }
+      .bar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .bar h2 {
+        font-size: 18px;
+        margin: 0;
+      }
+      .badge {
+        font-size: 12px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        color: var(--ink-2);
+      }
+      .badge.dirty {
+        border-color: var(--s4);
+        color: var(--ink);
+      }
+      .tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        border-bottom: 1px solid var(--grid);
+        margin-bottom: 14px;
+        padding-bottom: 8px;
+      }
+      .tabs button {
+        border-color: transparent;
+        background: transparent;
+      }
+      .tabs button[aria-selected="true"] {
+        background: var(--wash);
+        border-color: var(--border);
+        font-weight: 600;
+      }
+      label.field {
+        display: grid;
+        gap: 4px;
+        margin-bottom: 12px;
+      }
+      label.field > span {
+        font-weight: 500;
+      }
+      label.field small,
+      .hint {
+        color: var(--ink-2);
+      }
+      textarea {
+        font: inherit;
+        color: inherit;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px 10px;
+        width: 100%;
+        min-height: 90px;
+        resize: vertical;
+      }
+      textarea.code,
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 13px;
+      }
+      textarea.tall {
+        min-height: 420px;
+      }
+      input[type="text"],
+      input[type="number"],
+      input[type="password"] {
+        width: 100%;
+      }
+      td input,
+      td select {
+        min-height: 30px;
+        padding: 4px 8px;
+      }
+      .cols {
+        align-items: start;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        gap: 0 12px;
+      }
+      .box {
+        border: 1px solid var(--grid);
+        border-radius: 10px;
+        padding: 12px 14px;
+        margin-bottom: 12px;
+      }
+      .box h3 {
+        font-size: 14px;
+        margin: 0 0 6px;
+      }
+      .notice {
+        border-radius: 8px;
+        padding: 8px 12px;
+        margin-bottom: 12px;
+        background: var(--wash);
+        white-space: pre-wrap;
+      }
+      .notice.bad {
+        border: 1px solid var(--critical);
+      }
+      .choices {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 10px;
+      }
+      .choices button {
+        text-align: left;
+        padding: 12px;
+        height: 100%;
+      }
+      .choices strong {
+        display: block;
+        margin-bottom: 4px;
+      }
+      button.danger {
+        color: var(--critical);
+      }
+      button.primary {
+        background: var(--ink);
+        color: var(--surface);
+        border-color: var(--ink);
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section id="signin" class="card" hidden>
+        <h1>Agent runtime</h1>
+        <p class="note">Enter the admin token to manage tenants. It stays in this tab only.</p>
+        <form id="signin-form">
+          <input id="token" type="password" autocomplete="off" aria-label="Admin token" required />
+          <button type="submit">Open</button>
+        </form>
+        <p id="signin-error" class="error" role="alert" hidden></p>
+      </section>
+
+      <div id="app" hidden>
+        <header>
+          <h1>Agent runtime</h1>
+          <nav class="pages" aria-label="Admin pages">
+            <a href="/admin">Dashboard</a>
+            <a href="/admin/tenants" aria-current="page">Tenants</a>
+          </nav>
+          <span class="spacer"></span>
+          <button id="signout" type="button">Sign out</button>
+        </header>
+        <div class="layout">
+          <aside class="card">
+            <button id="new" type="button" class="wide primary">New tenant</button>
+            <ul id="list"></ul>
+          </aside>
+          <section id="editor" class="card" aria-live="polite"></section>
+        </div>
+      </div>
+    </main>
+
+    <script>
+      const TABS = [
+        ["overview", "Overview"],
+        ["plans", "Plans and limits"],
+        ["tools", "Tools"],
+        ["knowledge", "Knowledge"],
+        ["wording", "Wording"],
+        ["document", "Document"],
+      ];
+      const CODES = [
+        "message_cap",
+        "budget",
+        "ip_hour",
+        "ip_day",
+        "upstream",
+        "entitlement_inactive",
+        "contract_changed",
+      ];
+      const AUTHN = {
+        anonymous: "Anonymous visitors from the allowed origins",
+        account_token: "Accounts, proven by a token your backend signs",
+        app_attest: "An attested app with a store purchase",
+      };
+      const state = {
+        summaries: [],
+        doc: null,
+        isNew: false,
+        dirty: false,
+        tab: "overview",
+        contracts: [],
+        notice: null,
+        editing: null,
+        documents: null,
+      };
+      const $ = (id) => document.getElementById(id);
+
+      const el = (tag, attributes = {}, ...children) => {
+        const node = document.createElement(tag);
+        for (const [key, value] of Object.entries(attributes)) {
+          if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
+          else if (value === true) node.setAttribute(key, "");
+          else if (value !== false && value !== undefined) node.setAttribute(key, value);
+        }
+        node.append(...children.filter((child) => child !== null && child !== undefined));
+        return node;
+      };
+
+      const token = () => sessionStorage.getItem("admin-token") ?? "";
+      const api = async (path, options = {}) => {
+        const response = await fetch(`/admin/api${path}`, {
+          ...options,
+          headers: { authorization: `Bearer ${token()}`, "content-type": "application/json" },
+        });
+        const body = await response.json().catch(() => ({}));
+        if (response.status === 401) {
+          sessionStorage.removeItem("admin-token");
+          showSignin("That token was not accepted.");
+          throw new Error("Sign in again.");
+        }
+        if (!response.ok)
+          throw new Error(
+            body.message ?? `The server answered ${response.status} (${body.error ?? "error"}).`,
+          );
+        return body;
+      };
+
+      const touch = () => {
+        state.dirty = true;
+        const badge = $("badge");
+        if (badge) {
+          badge.textContent = state.isNew ? "New, not saved" : "Unsaved changes";
+          badge.className = "badge dirty";
+        }
+      };
+      const say = (text, bad = false) => {
+        state.notice = { text, bad };
+        render();
+      };
+
+      const field = (label, control, hint) =>
+        el(
+          "label",
+          { class: "field" },
+          el("span", {}, label),
+          control,
+          hint ? el("small", {}, hint) : null,
+        );
+      const text = (value, onChange, attributes = {}) =>
+        el("input", {
+          type: "text",
+          value: value ?? "",
+          ...attributes,
+          oninput: (event) => {
+            onChange(event.target.value);
+            touch();
+          },
+        });
+      const number = (value, onChange, attributes = {}) =>
+        el("input", {
+          type: "number",
+          value: value ?? "",
+          ...attributes,
+          oninput: (event) => {
+            onChange(Number(event.target.value));
+            touch();
+          },
+        });
+      const area = (value, onChange, attributes = {}) => {
+        const node = el("textarea", {
+          ...attributes,
+          oninput: (event) => {
+            onChange(event.target.value);
+            touch();
+          },
+        });
+        node.value = value ?? "";
+        return node;
+      };
+      const select = (value, options, onChange) => {
+        const node = el(
+          "select",
+          {
+            onchange: (event) => {
+              onChange(event.target.value);
+              touch();
+            },
+          },
+          ...options.map(([id, label]) => el("option", { value: id }, label)),
+        );
+        node.value = value ?? "";
+        return node;
+      };
+      const lines = (value) =>
+        value
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line !== "");
+      const button = (label, onClick, attributes = {}) =>
+        el("button", { type: "button", onclick: onClick, ...attributes }, label);
+      const table = (heads, rows, emptyText) => {
+        const body =
+          rows.length === 0
+            ? [el("tr", {}, el("td", { colspan: heads.length, class: "hint" }, emptyText))]
+            : rows.map((cells) => el("tr", {}, ...cells.map((cell) => el("td", {}, cell))));
+        return el(
+          "div",
+          { class: "scroll" },
+          el("table", {}, el("tr", {}, ...heads.map((head) => el("th", {}, head))), ...body),
+        );
+      };
+
+      const overview = () => {
+        const { doc } = state;
+        const { agent } = doc;
+        const evals = doc.evals !== undefined;
+        const secret = el("input", {
+          type: "password",
+          placeholder: "At least 32 characters",
+          "aria-label": "Eval secret",
+        });
+        const setSecret = async () => {
+          if (secret.value.length < 32)
+            return say("An eval secret needs at least 32 characters.", true);
+          const digest = await crypto.subtle.digest(
+            "SHA-256",
+            new TextEncoder().encode(secret.value),
+          );
+          const secretSha256 = Array.from(new Uint8Array(digest), (byte) =>
+            byte.toString(16).padStart(2, "0"),
+          ).join("");
+          doc.evals = { ...doc.evals, secretSha256 };
+          touch();
+          say("Eval secret set. Only its hash is kept; save the tenant to apply it.");
+        };
+        return [
+          el(
+            "div",
+            { class: "cols" },
+            field(
+              "Tenant id",
+              text(doc.id, (value) => (doc.id = value), {
+                disabled: !state.isNew,
+                pattern: "[a-z0-9][a-z0-9-]{1,40}",
+              }),
+              state.isNew
+                ? "Lowercase letters, digits and dashes. It is part of the address and cannot change later."
+                : "Part of the address. It cannot change.",
+            ),
+            field(
+              "Name",
+              text(doc.name, (value) => (doc.name = value)),
+            ),
+          ),
+          el(
+            "p",
+            { class: "hint" },
+            `Callers: ${AUTHN[doc.authn.kind] ?? doc.authn.kind}. Agent: ${agent.kind === "chat" ? `chat, ${agent.state}` : "gated answer"}. Change either in the Document tab.`,
+          ),
+          field(
+            "Allowed origins",
+            area(
+              (doc.authn.allowedOrigins ?? []).join("\n"),
+              (value) => (doc.authn.allowedOrigins = lines(value)),
+            ),
+            "One per line. A browser on any other origin is refused.",
+          ),
+          el(
+            "div",
+            { class: "cols" },
+            field(
+              "Model tier",
+              select(
+                agent.tier,
+                [
+                  ["fast", "Fast"],
+                  ["balanced", "Balanced"],
+                ],
+                (value) => (agent.tier = value),
+              ),
+            ),
+            field(
+              "Effort",
+              select(
+                agent.effort,
+                [
+                  ["low", "Low"],
+                  ["medium", "Medium"],
+                  ["high", "High"],
+                ],
+                (value) => (agent.effort = value),
+              ),
+            ),
+            field(
+              "Longest reply, in tokens",
+              number(agent.maxOutputTokens, (value) => (agent.maxOutputTokens = value), {
+                min: 256,
+                max: 4000,
+              }),
+            ),
+          ),
+          field(
+            "System prompt",
+            area(agent.system, (value) => (agent.system = value), {
+              class: "tall",
+              style: "min-height:200px",
+            }),
+            "Who the assistant is and what it may know. It is sent as a cached block.",
+          ),
+          field(
+            "Reminder",
+            text(agent.reminder, (value) => (agent.reminder = value === "" ? undefined : value)),
+            "Read last by the model on every call. Optional.",
+          ),
+          el(
+            "div",
+            { class: "box" },
+            el("h3", {}, `Eval runs: ${evals ? "on" : "off"}`),
+            el(
+              "p",
+              { class: "hint" },
+              "A runner that holds the secret can ask without a device or account and spends from this tenant's pool. Keep it off production tenants.",
+            ),
+            el(
+              "div",
+              { class: "bar" },
+              secret,
+              button(evals ? "Replace secret" : "Turn on", setSecret),
+              evals
+                ? button("Turn off", () => {
+                    delete doc.evals;
+                    touch();
+                    render();
+                  })
+                : null,
+            ),
+          ),
+        ];
+      };
+
+      const plans = () => {
+        const { doc } = state;
+        doc.plans ??= {};
+        const added = el("input", {
+          type: "text",
+          placeholder: "plan name",
+          "aria-label": "New plan name",
+        });
+        const rows = Object.entries(doc.plans).map(([name, plan]) => [
+          el("span", { class: "mono" }, name),
+          number(plan.messagesPerMonth, (value) => (plan.messagesPerMonth = value), {
+            min: 1,
+            max: 5000,
+            "aria-label": `Messages per month for ${name}`,
+          }),
+          select(
+            plan.tier ?? "",
+            [
+              ["", "The agent's tier"],
+              ["fast", "Fast"],
+              ["balanced", "Balanced"],
+            ],
+            (value) => {
+              if (value === "") delete plan.tier;
+              else plan.tier = value;
+            },
+          ),
+          button("Remove", () => {
+            delete doc.plans[name];
+            touch();
+            render();
+          }),
+        ]);
+        const addPlan = () => {
+          if (!/^[a-z][a-z0-9_-]{0,30}$/.test(added.value))
+            return say(
+              "A plan name starts with a letter and uses lowercase letters, digits, dashes or underscores.",
+              true,
+            );
+          doc.plans[added.value] = { messagesPerMonth: 100 };
+          touch();
+          render();
+        };
+        return [
+          el(
+            "div",
+            { class: "box" },
+            el("h3", {}, "Limits for the whole tenant"),
+            el(
+              "div",
+              { class: "cols" },
+              field(
+                "Monthly pool, EUR",
+                number(
+                  doc.limits.poolEurPerMonth,
+                  (value) => (doc.limits.poolEurPerMonth = value),
+                  { min: 0, max: 5000, step: "any" },
+                ),
+                "Answers pause for the month when this is spent.",
+              ),
+              field(
+                "US dollars per euro",
+                number(doc.limits.usdPerEur, (value) => (doc.limits.usdPerEur = value), {
+                  min: 0.01,
+                  step: "any",
+                }),
+              ),
+              field(
+                "Per network, per hour",
+                number(doc.limits.ipPerHour, (value) => (doc.limits.ipPerHour = value), {
+                  min: 1,
+                  max: 1000,
+                }),
+                "Anonymous callers only.",
+              ),
+              field(
+                "Per network, per day",
+                number(doc.limits.ipPerDay, (value) => (doc.limits.ipPerDay = value), {
+                  min: 1,
+                  max: 5000,
+                }),
+              ),
+            ),
+          ),
+          el(
+            "div",
+            { class: "box" },
+            el("h3", {}, "Plans"),
+            el(
+              "p",
+              { class: "hint" },
+              "A caller's credential names its plan. Each plan caps the messages one subject may send in a month.",
+            ),
+            table(
+              ["Plan", "Messages per month", "Model tier", ""],
+              rows,
+              "No plans. Anonymous tenants do not need any.",
+            ),
+            el(
+              "div",
+              { class: "bar", style: "margin-top:10px" },
+              added,
+              button("Add plan", addPlan),
+            ),
+          ),
+        ];
+      };
+
+      const RUNS = {
+        client: "On the client",
+        http: "Fetch by the runtime",
+        knowledge: "Knowledge search",
+      };
+      const savedHash = (version) =>
+        state.contracts.find((entry) => entry.version === version)?.hash;
+
+      const toolForm = (contract) => {
+        const { draft, toolIndex } = state.editing;
+        const schema = area(JSON.stringify(draft.input_schema, null, 2), () => {}, {
+          class: "code",
+          style: "min-height:150px",
+        });
+        const done = () => {
+          if (!/^[a-z][a-z0-9_]{0,40}$/.test(draft.name))
+            return say(
+              "A tool name starts with a letter and uses lowercase letters, digits or underscores.",
+              true,
+            );
+          try {
+            draft.input_schema = JSON.parse(schema.value);
+          } catch {
+            return say("The input schema is not valid JSON.", true);
+          }
+          if (draft.run.kind !== "http") delete draft.run.url;
+          if (toolIndex === -1) contract.tools.push(draft);
+          else contract.tools[toolIndex] = draft;
+          state.editing = null;
+          touch();
+          render();
+        };
+        return el(
+          "div",
+          { class: "box" },
+          el("h3", {}, toolIndex === -1 ? "New tool" : `Edit ${draft.name}`),
+          el(
+            "div",
+            { class: "cols" },
+            field(
+              "Name",
+              text(draft.name, (value) => (draft.name = value)),
+              "What the model calls.",
+            ),
+            field(
+              "Effect",
+              select(
+                draft.effect,
+                [
+                  ["read", "Read"],
+                  ["write", "Write"],
+                  ["external", "External"],
+                  ["irreversible", "Irreversible"],
+                ],
+                (value) => (draft.effect = value),
+              ),
+              "Anything but read can only run on the client.",
+            ),
+            field(
+              "Where it runs",
+              select(draft.run.kind, Object.entries(RUNS), (value) => {
+                draft.run.kind = value;
+                render();
+              }),
+            ),
+          ),
+          draft.run.kind === "http"
+            ? field(
+                "Address",
+                text(draft.run.url, (value) => (draft.run.url = value)),
+                "https only. Put {name} where an argument goes. The host must be in the allowed hosts below.",
+              )
+            : null,
+          field(
+            "Description",
+            area(draft.description, (value) => (draft.description = value)),
+            "The model reads this to decide when to call the tool.",
+          ),
+          field("Input schema (JSON Schema)", schema),
+          el(
+            "div",
+            { class: "bar" },
+            button("Done", done, { class: "primary" }),
+            button("Cancel", () => {
+              state.editing = null;
+              render();
+            }),
+          ),
+        );
+      };
+
+      const contractBox = (agent, contract, index) => {
+        const hash = savedHash(contract.version);
+        const rows = contract.tools.map((tool, toolIndex) => [
+          el("span", { class: "mono" }, tool.name),
+          tool.effect,
+          RUNS[tool.run.kind],
+          el("span", { class: "mono" }, tool.run.url ?? ""),
+          el(
+            "span",
+            {},
+            button("Edit", () => {
+              state.editing = { index, toolIndex, draft: structuredClone(tool) };
+              render();
+            }),
+            " ",
+            button("Remove", () => {
+              contract.tools.splice(toolIndex, 1);
+              touch();
+              render();
+            }),
+          ),
+        ]);
+        const editingHere = state.editing?.index === index;
+        const blank = {
+          name: "",
+          description: "",
+          input_schema: { type: "object", properties: {}, additionalProperties: false },
+          effect: "read",
+          run: { kind: "client" },
+        };
+        const images = el("input", {
+          type: "checkbox",
+          style: "min-height:0",
+          onchange: (event) => {
+            contract.allowsImages = event.target.checked;
+            touch();
+          },
+        });
+        images.checked = contract.allowsImages === true;
+        return el(
+          "div",
+          { class: "box" },
+          el(
+            "div",
+            { class: "bar" },
+            el("h3", { style: "margin:0" }, `Contract version ${contract.version}`),
+            el(
+              "span",
+              { class: "badge mono", title: hash ?? "" },
+              hash && !state.dirty ? `hash ${hash.slice(0, 12)}…` : "hash set on save",
+            ),
+            el("span", { class: "spacer" }),
+            agent.contracts.length > 1
+              ? button("Remove version", () => {
+                  agent.contracts.splice(index, 1);
+                  touch();
+                  render();
+                })
+              : null,
+          ),
+          el(
+            "p",
+            { class: "hint" },
+            "A client names the version it was built with and may send the hash; the runtime refuses it if the tools have changed.",
+          ),
+          table(["Tool", "Effect", "Runs", "Address", ""], rows, "No tools in this version."),
+          el(
+            "div",
+            { class: "bar", style: "margin-top:10px" },
+            button("Add tool", () => {
+              state.editing = { index, toolIndex: -1, draft: blank };
+              render();
+            }),
+            el("label", {}, images, " A question may carry one image"),
+          ),
+          editingHere ? toolForm(contract) : null,
+        );
+      };
+
+      const tools = () => {
+        const { doc } = state;
+        const { agent } = doc;
+        if (agent.kind !== "chat")
+          return [
+            el(
+              "p",
+              { class: "hint" },
+              "A gated answer has no tools. Tools belong to chat agents; change the agent in the Document tab.",
+            ),
+          ];
+        doc.egress ??= { allowedHosts: [] };
+        const addVersion = () => {
+          const latest = agent.contracts.reduce((best, contract) =>
+            contract.version > best.version ? contract : best,
+          );
+          agent.contracts.push({ ...structuredClone(latest), version: latest.version + 1 });
+          touch();
+          render();
+        };
+        return [
+          ...agent.contracts.map((contract, index) => contractBox(agent, contract, index)),
+          el(
+            "div",
+            { class: "bar" },
+            button("Add a version from the latest", addVersion),
+            el(
+              "span",
+              { class: "hint" },
+              "Keep an old version while clients built with it are still in use.",
+            ),
+          ),
+          el(
+            "div",
+            { class: "box" },
+            el("h3", {}, "Allowed hosts"),
+            field(
+              "Hosts a fetch tool may call",
+              area(
+                doc.egress.allowedHosts.join("\n"),
+                (value) => (doc.egress.allowedHosts = lines(value)),
+              ),
+              "One per line. A fetch tool to any other host is refused when you save.",
+            ),
+          ),
+        ];
+      };
+
+      const loadDocuments = async () => {
+        state.documents = await api(`/tenants/${state.doc.id}/documents`).catch(() => []);
+        render();
+      };
+
+      const knowledge = () => {
+        const { doc } = state;
+        if (state.isNew)
+          return [
+            el("p", { class: "hint" }, "Save the tenant first, then add its documents here."),
+          ];
+        if (state.documents === null) {
+          loadDocuments();
+          return [el("p", { class: "hint" }, "Loading documents…")];
+        }
+        const id = el("input", { type: "text", placeholder: "document-id" });
+        const title = el("input", { type: "text", placeholder: "Title" });
+        const visible = el("input", {
+          type: "text",
+          placeholder: "Plans that may see it, comma separated (blank: everyone)",
+        });
+        const body = el("textarea", {
+          placeholder: "Paste the text. Markdown headings are kept with their sections.",
+          style: "min-height:140px",
+        });
+        const add = async () => {
+          const plansList = visible.value
+            .split(",")
+            .map((plan) => plan.trim())
+            .filter((plan) => plan !== "");
+          try {
+            const result = await api(`/tenants/${doc.id}/documents/${id.value}`, {
+              method: "PUT",
+              body: JSON.stringify({
+                title: title.value,
+                text: body.value,
+                ...(plansList.length > 0 ? { plans: plansList } : {}),
+              }),
+            });
+            state.documents = null;
+            say(
+              result.unchanged
+                ? "That document is unchanged."
+                : `Stored in ${result.chunks} passage(s)${result.embedded ? ", embedded" : ", keyword search only"}.`,
+            );
+          } catch (error) {
+            say(error.message, true);
+          }
+        };
+        const remove = async (documentId) => {
+          if (!confirm(`Delete the document ${documentId}?`)) return;
+          await api(`/tenants/${doc.id}/documents/${documentId}`, { method: "DELETE" });
+          state.documents = null;
+          render();
+        };
+        const settings = doc.knowledge;
+        return [
+          el(
+            "div",
+            { class: "box" },
+            el("h3", {}, "Documents"),
+            el(
+              "p",
+              { class: "hint" },
+              "The agent searches these only when a contract has a tool that runs as knowledge search.",
+            ),
+            table(
+              ["Id", "Title", "Passages", "Embedded", "Updated", ""],
+              state.documents.map((entry) => [
+                el("span", { class: "mono" }, entry.id),
+                entry.title,
+                String(entry.chunks),
+                entry.embedded ? "Yes" : "No",
+                new Date(entry.updatedAt).toLocaleString("en"),
+                button("Delete", () => remove(entry.id), { class: "danger" }),
+              ]),
+              "No documents yet.",
+            ),
+          ),
+          el(
+            "div",
+            { class: "box" },
+            el("h3", {}, "Add or replace a document"),
+            el("div", { class: "cols" }, field("Id", id), field("Title", title)),
+            field("Visible to", visible),
+            field("Text", body),
+            button("Store document", add, { class: "primary" }),
+          ),
+          el(
+            "div",
+            { class: "box" },
+            el("h3", {}, "Search settings"),
+            settings === undefined
+              ? el(
+                  "div",
+                  {},
+                  el(
+                    "p",
+                    { class: "hint" },
+                    "Using the defaults: passages of about 1,200 characters, the best 5 returned, keyword search only.",
+                  ),
+                  button("Change the settings", () => {
+                    doc.knowledge = { chunkChars: 1200, topK: 5 };
+                    touch();
+                    render();
+                  }),
+                )
+              : el(
+                  "div",
+                  { class: "cols" },
+                  field(
+                    "Passage size, characters",
+                    number(settings.chunkChars, (value) => (settings.chunkChars = value), {
+                      min: 200,
+                      max: 4000,
+                    }),
+                  ),
+                  field(
+                    "Passages returned",
+                    number(settings.topK, (value) => (settings.topK = value), { min: 1, max: 20 }),
+                  ),
+                  field(
+                    "Embedding model",
+                    text(settings.embeddingModel, (value) => {
+                      if (value === "") delete settings.embeddingModel;
+                      else settings.embeddingModel = value;
+                    }),
+                    "Blank: keyword search only. Needs an embeddings endpoint on the runtime.",
+                  ),
+                ),
+          ),
+        ];
+      };
+
+      const pairs = (target, heads, placeholder) => {
+        const key = el("input", { type: "text", placeholder, list: "codes" });
+        const rows = Object.entries(target).map(([name, value]) => [
+          el("span", { class: "mono" }, name),
+          text(value, (next) => (target[name] = next), { "aria-label": `Text for ${name}` }),
+          button("Remove", () => {
+            delete target[name];
+            touch();
+            render();
+          }),
+        ]);
+        const add = () => {
+          if (key.value.trim() === "" || key.value in target) return;
+          target[key.value.trim()] = "Replace this text.";
+          touch();
+          render();
+        };
+        return el(
+          "div",
+          {},
+          table([...heads, ""], rows, "None. The built-in English text is used."),
+          el("div", { class: "bar", style: "margin-top:10px" }, key, button("Add", add)),
+        );
+      };
+
+      const wording = () => {
+        const { doc } = state;
+        const { agent } = doc;
+        doc.messages ??= {};
+        const refusals =
+          agent.kind === "chat"
+            ? [
+                field(
+                  "Refusal, when no language matches",
+                  text(agent.refusal.fallback, (value) => (agent.refusal.fallback = value)),
+                ),
+                el(
+                  "p",
+                  { class: "hint" },
+                  "Per language, by the id of a language the agent detects (set the languages in the Document tab):",
+                ),
+                pairs(
+                  (agent.refusal.byLanguage ??= {}),
+                  ["Language", "Refusal"],
+                  "language id, such as es",
+                ),
+              ]
+            : [
+                field(
+                  "Refusal",
+                  text(
+                    agent.gate.fallback.refusal,
+                    (value) => (agent.gate.fallback.refusal = value),
+                  ),
+                ),
+                field(
+                  "When the reply cannot be read",
+                  text(
+                    agent.gate.fallback.unreadable,
+                    (value) => (agent.gate.fallback.unreadable = value),
+                  ),
+                ),
+                el(
+                  "p",
+                  { class: "hint" },
+                  "Refusals per language are set as patterns in the Document tab.",
+                ),
+              ];
+        return [
+          el(
+            "div",
+            { class: "box" },
+            el("h3", {}, "What the assistant says when it refuses"),
+            ...refusals,
+          ),
+          el(
+            "div",
+            { class: "box" },
+            el("h3", {}, "What callers read when something is refused or fails"),
+            el(
+              "p",
+              { class: "hint" },
+              "Keyed by error code. Clients also get the code and can show their own text.",
+            ),
+            pairs(doc.messages, ["Error code", "Message"], "error code"),
+            el("datalist", { id: "codes" }, ...CODES.map((code) => el("option", { value: code }))),
+          ),
+        ];
+      };
+
+      const documentTab = () => {
+        const problem = el("p", { class: "error", role: "alert", hidden: true });
+        const editor = el("textarea", {
+          class: "code tall",
+          spellcheck: "false",
+          "aria-label": "Tenant document",
+        });
+        editor.value = JSON.stringify(state.doc, null, 2);
+        editor.addEventListener("input", () => {
+          try {
+            const parsed = JSON.parse(editor.value);
+            if (!state.isNew) parsed.id = state.doc.id;
+            state.doc = parsed;
+            problem.hidden = true;
+            touch();
+          } catch (error) {
+            problem.hidden = false;
+            problem.textContent = `Not valid JSON yet: ${error.message}`;
+          }
+        });
+        return [
+          el(
+            "p",
+            { class: "hint" },
+            "The whole tenant document. Everything in the other tabs edits this. Validate checks it without saving.",
+          ),
+          editor,
+          problem,
+        ];
+      };
+
+      const PANELS = { overview, plans, tools, knowledge, wording, document: documentTab };
+
+      const save = async () => {
+        try {
+          const result = await api(`/tenants/${state.doc.id}`, {
+            method: "PUT",
+            body: JSON.stringify(state.doc),
+          });
+          Object.assign(state, {
+            doc: result.tenant,
+            contracts: result.contracts,
+            isNew: false,
+            dirty: false,
+            editing: null,
+          });
+          await loadList();
+          say("Saved. Changes reach every worker instance within thirty seconds.");
+        } catch (error) {
+          say(error.message, true);
+        }
+      };
+      const validate = async () => {
+        try {
+          await api("/validate-tenant", { method: "POST", body: JSON.stringify(state.doc) });
+          say("This document is valid. It is not saved yet.");
+        } catch (error) {
+          say(error.message, true);
+        }
+      };
+      const removeTenant = async () => {
+        const typed = prompt(
+          `This removes the tenant and its clients stop working at once. Its stored sessions, documents and counters are not erased.\n\nType ${state.doc.id} to delete it.`,
+        );
+        if (typed !== state.doc.id) return;
+        await api(`/tenants/${state.doc.id}`, { method: "DELETE" });
+        Object.assign(state, { doc: null, dirty: false, notice: null });
+        await loadList();
+        render();
+      };
+
+      const chooser = (templates) =>
+        el(
+          "div",
+          {},
+          el("h2", {}, "Start a new tenant from"),
+          el(
+            "p",
+            { class: "note", style: "margin-bottom:12px" },
+            "Each starts as a working document with placeholder values. Change them, validate, then save.",
+          ),
+          el(
+            "div",
+            { class: "choices" },
+            ...templates
+              .map((template) =>
+                button("", () => open(structuredClone(template.tenant), true, []), {}),
+              )
+              .map((node, index) => {
+                node.append(el("strong", {}, templates[index].label), templates[index].description);
+                return node;
+              }),
+          ),
+        );
+
+      const render = () => {
+        const editor = $("editor");
+        renderList();
+        if (state.doc === null) {
+          editor.replaceChildren(
+            el(
+              "p",
+              { class: "empty" },
+              state.summaries.length === 0
+                ? "No tenants yet. Choose New tenant to create the first one."
+                : "Choose a tenant, or create a new one.",
+            ),
+          );
+          return;
+        }
+        const notice =
+          state.notice === null
+            ? null
+            : el(
+                "div",
+                { class: state.notice.bad ? "notice bad" : "notice", role: "status" },
+                state.notice.text,
+              );
+        const badge = el(
+          "span",
+          { id: "badge", class: state.dirty ? "badge dirty" : "badge" },
+          state.isNew ? "New, not saved" : state.dirty ? "Unsaved changes" : "Saved",
+        );
+        editor.replaceChildren(
+          ...[
+            el(
+              "div",
+              { class: "bar" },
+              el("h2", {}, state.doc.name || "Unnamed tenant"),
+              badge,
+              el("span", { class: "spacer" }),
+              button("Validate", validate),
+              button("Save", save, { class: "primary" }),
+              state.isNew ? null : button("Delete", removeTenant, { class: "danger" }),
+            ),
+            notice,
+            el(
+              "div",
+              { class: "tabs", role: "tablist" },
+              ...TABS.map(([id, label]) =>
+                button(
+                  label,
+                  () => {
+                    state.tab = id;
+                    state.notice = null;
+                    state.editing = null;
+                    render();
+                  },
+                  { role: "tab", "aria-selected": String(state.tab === id) },
+                ),
+              ),
+            ),
+            el("div", { role: "tabpanel" }, ...PANELS[state.tab]()),
+          ].filter((node) => node !== null),
+        );
+      };
+
+      const renderList = () => {
+        $("list").replaceChildren(
+          ...state.summaries.map((summary) => {
+            const item = button("", () => choose(summary.id), {
+              "aria-current": String(!state.isNew && state.doc?.id === summary.id),
+            });
+            item.append(summary.name, el("small", {}, `${summary.id} · ${summary.agent}`));
+            return el("li", {}, item);
+          }),
+        );
+      };
+
+      const leaving = () => !state.dirty || confirm("Leave without saving your changes?");
+      const open = (doc, isNew, contracts) => {
+        Object.assign(state, {
+          doc,
+          isNew,
+          contracts,
+          dirty: isNew,
+          tab: "overview",
+          notice: null,
+          editing: null,
+          documents: null,
+        });
+        render();
+      };
+      const choose = async (id) => {
+        if (!leaving()) return;
+        const loaded = await api(`/tenants/${id}`);
+        open(loaded.tenant, false, loaded.contracts);
+      };
+      const loadList = async () => {
+        state.summaries = await api("/tenants");
+      };
+      const start = async () => {
+        try {
+          await loadList();
+          $("signin").hidden = true;
+          $("app").hidden = false;
+          render();
+        } catch (error) {
+          if (token() !== "") showSignin(error.message);
+        }
+      };
+      const showSignin = (message) => {
+        $("app").hidden = true;
+        $("signin").hidden = false;
+        $("signin-error").hidden = message === undefined;
+        $("signin-error").textContent = message ?? "";
+        $("token").focus();
+      };
+
+      $("new").addEventListener("click", async () => {
+        if (!leaving()) return;
+        const templates = await api("/templates");
+        Object.assign(state, { doc: null, dirty: false, notice: null });
+        renderList();
+        $("editor").replaceChildren(chooser(templates));
+      });
+      $("signout").addEventListener("click", () => {
+        sessionStorage.removeItem("admin-token");
+        showSignin();
+      });
+      $("signin-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        sessionStorage.setItem("admin-token", $("token").value);
+        $("token").value = "";
+        start();
+      });
+      window.addEventListener("beforeunload", (event) => {
+        if (state.dirty) event.preventDefault();
+      });
+
+      if (token() === "") showSignin();
+      else start();
+    </script>
+  </body>
+</html>

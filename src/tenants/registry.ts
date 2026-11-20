@@ -48,3 +48,14 @@ export const listTenants = async (env: Env): Promise<Tenant[]> => {
     return tenant === null ? [] : [tenant];
   });
 };
+
+export const loadStoredTenant = async (env: Env, id: string): Promise<Tenant | null> => {
+  const serialized = await registryOf(env).get(id);
+  return serialized === null ? null : parseTenant(serialized);
+};
+
+export const deleteTenant = async (env: Env, id: string): Promise<boolean> => {
+  const removed = await registryOf(env).remove(id);
+  cache.set(id, { at: Date.now(), tenant: null });
+  return removed;
+};
