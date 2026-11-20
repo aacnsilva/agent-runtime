@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
+
+import source from "../wrangler.jsonc?raw";
 
 interface Binding {
   name: string;
@@ -19,9 +19,7 @@ interface Config extends Deployment {
 
 const TRAILING_COMMA = /,(\s*[}\]])/g;
 
-const config = JSON.parse(
-  readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8").replace(TRAILING_COMMA, "$1"),
-) as Config;
+const config = JSON.parse(source.replace(TRAILING_COMMA, "$1")) as Config;
 
 describe("worker configuration", () => {
   it("gives the dev deployment its own name and every store production has", () => {
