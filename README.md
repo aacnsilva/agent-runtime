@@ -21,20 +21,36 @@ Each diagram has an editable source in [`docs/design`](docs/design). Open the `.
 | LLM routing | [PNG](docs/design/03-llm-routing.png) | [`03-llm-routing.excalidraw`](docs/design/03-llm-routing.excalidraw) |
 | Multi-tenant RAG | [PNG](docs/design/04-multi-tenant-rag.png) | [`04-multi-tenant-rag.excalidraw`](docs/design/04-multi-tenant-rag.excalidraw) |
 
+## Tenants, subjects and plans
+
+The runtime serves several products. Each product is a tenant, each end customer of a product is a subject, and each subject has a plan that sets its limits.
+
+Tenants differ along four settings:
+
+| Setting | Options |
+|---|---|
+| Authentication | Device attestation plus a signed purchase, a signed account token carrying the plan, or anonymous with an allowed origin |
+| Limits | Messages per subject by plan, a monthly pool per tenant, and per IP for anonymous callers |
+| Conversation state | Stored by the runtime, or stateless, where the client sends the history and nothing is kept |
+| Tool execution | In the runtime, on the client device, or no tools |
+
+The runtime does not own accounts or billing. Each product proves who the subject is and which plan they bought through its credential, and the runtime verifies that credential and enforces the plan.
+
 ## Gateway
 
 The single entry point. A request passes through a pipeline where every stage can reject early, and the response comes back as a separate event stream.
 
 ![Gateway](docs/design/01-gateway.png)
 
-- **AuthN** verifies the API key or JWT (401).
-- **Tenant resolver** turns the credential into a tenant context that travels with the request.
-- **AuthZ** checks the caller's roles and scopes for the action (403).
-- **Rate limit and quotas** apply a per-tenant token bucket and a token budget (429).
-- **Validate and idempotency** checks the body and replays the earlier run for a repeated idempotency key (400).
-- **Session manager** loads the session and checks that the caller owns it (404, so ids in other tenants cannot be probed).
-- **Dispatcher** hands the run and tenant context to the agent core.
-- **Stream hub** logs events and fans them out over SSE, so a client can reconnect with `Last-Event-ID`.
+- **Tenant route** picks the tenant, and with it the authenticator, plans and modes (404).
+- **AuthN plugin** verifies the tenant's own credential against the raw request body (401).
+- **Entitlement** reads the subject and its plan from the verified credential (402 when there is no active plan).
+- **AuthZ** checks what the plan and scopes allow (403).
+- **Validate and caps** checks the body, its size limits and the contract version, before any quota is spent (400).
+- **Session mode** is per tenant: stored by the runtime with an ownership check (404), or stateless, where the client sends the history and nothing is kept.
+- **Quota reserve** applies three limits: messages per subject by plan, a monthly pool per tenant, and per IP for anonymous callers (429). The reservation is settled after the run; a failed run is refunded and a timeout keeps it.
+- **Dispatcher** hands the run and the subject context to the agent core.
+- **Stream hub** fans events out over SSE. Reconnecting with `Last-Event-ID` works only in stored mode.
 
 ## Tools registry
 
@@ -44,9 +60,10 @@ Tools are registered once, shown to the model per tenant, and invoked through a 
 
 - **Identity:** every tool has an owner and is addressed as `namespace/name@version#hash`, so names never collide.
 - **Pinned by hash:** registration computes a sha256 over the definition, and invoke rejects any call whose hash no longer matches.
-- **Discovery is read-only:** it decides which tools the model sees and never prompts.
-- **One policy gate, at invoke time:** reads pass automatically; only write, external and irreversible calls ask for human approval.
+- **Discovery is read-only:** it resolves the tools for the tenant, the plan and the client's contract version, and never prompts.
+- **One policy gate, at invoke time:** reads pass automatically; only write, external and irreversible calls ask for human approval, as a runtime prompt or on the device.
 - **Secrets** are injected by the credential broker at execution and never enter the model context.
+- **Client-run tools:** a tool can be marked to run on the client device. The runtime returns the call, the app runs it, and the result is validated when it comes back.
 - **Sandbox tiers:** remote calls go through an egress allowlist proxy; model-written JavaScript runs in an isolate (QuickJS in WASM first, V8 isolates such as Cloudflare Dynamic Workers later); shell and file work runs in a microVM.
 
 ## LLM routing
@@ -60,6 +77,8 @@ Callers ask for a capability tier, never a model name. The router selects a mode
 - **Provider adapters** are the only place provider-specific code lives. Provider API keys are read from the secrets vault.
 - **Sticky per run:** a run stays on one model so the provider's prompt cache stays warm.
 - **Usage meter** records real token counts and cost and settles the budget reservation.
+- **Two kinds of limit:** the router guards the tenant's monthly pool in EUR; message caps per subject live in the gateway.
+- **Model settings per tenant:** thinking mode and output caps are part of tenant policy.
 - **No silent retry** once tokens have streamed; the error goes back to the agent loop.
 
 ## Multi-tenant RAG
@@ -74,10 +93,11 @@ A write path that ingests documents and a read path that retrieves them, with fo
 - **Retrieve:** hybrid vector and keyword search, rerank, then pack chunks into a token budget with citations.
 - **Retrieved text is untrusted data**, because documents can carry prompt injection.
 - **Each chunk records its embedding model version**, and one search never mixes versions.
+- **Optional per tenant:** a small corpus goes in the cached prompt or behind a fetch tool.
 
 ## Open decisions
 
-- Implementation language. The QuickJS sandbox recommendation assumes a runtime that can host WASM.
+- Platform and language.
+- How a web product proves an account and its plan to the runtime. Drawn as a signed token issued by the product's backend.
 - Tenant isolation in RAG: a shared index with a namespace per tenant (drawn) or a separate index per tenant.
-- Whether retrieval is called by the agent core directly (drawn) or exposed as a read-effect tool in the registry.
 - Whether the dispatcher calls the agent core directly (drawn) or through a queue.
