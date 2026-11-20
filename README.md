@@ -77,7 +77,7 @@ A chat client may send `contractHash`; the runtime refuses the request if the te
 A tenant is one JSON document, validated by `src/tenants/schema.ts`. Two fictional examples show both shapes:
 
 - `examples/tenants/demo.tenant.json`: anonymous callers, a gated agent.
-- `examples/tenants/tutor.tenant.json`: signed account tokens, two plans, stored sessions, a fetch tool, knowledge search and a client tool.
+- `examples/tenants/course.tenant.json`: signed account tokens, two plans, stored sessions, a fetch tool, knowledge search and a client tool.
 
 Real tenants live with their products, never in this repository.
 
@@ -103,100 +103,56 @@ A client that runs its own tools, such as a mobile app's test target, can use th
 
 `CLAUDE.md` has the ground rules: no comments in code, strict compiler and lint settings, and every feature ships with unit tests, an end-to-end spec and a verification skill in `.claude/skills/`.
 
-## System design
+## How it works
 
-A request enters through the gateway, which authenticates the caller and attaches a tenant context.
-The agent core runs the plan, act, observe loop and calls the three other modules: LLM routing, the tools registry, and multi-tenant RAG.
+These diagrams show the runtime as it is built. Each has an editable source in [`docs/design`](docs/design): open the `.excalidraw` file at [excalidraw.com](https://excalidraw.com) or with the Excalidraw editor extension.
 
-![System overview](docs/design/00-overview.png)
+![Overview](docs/design/00-overview.png)
 
-Each diagram has an editable source in [`docs/design`](docs/design). Open the `.excalidraw` file at [excalidraw.com](https://excalidraw.com) or with the Excalidraw editor extension.
+A request enters through the gateway, which finds the tenant, authenticates the caller and applies the tenant's limits. The tenant's agent then runs, calling the model through LLM routing, tools, and the tenant's knowledge store as it needs them.
 
-| Module           | Diagram                                    | Source                                                                         |
-| ---------------- | ------------------------------------------ | ------------------------------------------------------------------------------ |
-| Overview         | [PNG](docs/design/00-overview.png)         | [`00-overview.excalidraw`](docs/design/00-overview.excalidraw)                 |
-| Gateway          | [PNG](docs/design/01-gateway.png)          | [`01-gateway.excalidraw`](docs/design/01-gateway.excalidraw)                   |
-| Tools registry   | [PNG](docs/design/02-tools-registry.png)   | [`02-tools-registry.excalidraw`](docs/design/02-tools-registry.excalidraw)     |
-| LLM routing      | [PNG](docs/design/03-llm-routing.png)      | [`03-llm-routing.excalidraw`](docs/design/03-llm-routing.excalidraw)           |
-| Multi-tenant RAG | [PNG](docs/design/04-multi-tenant-rag.png) | [`04-multi-tenant-rag.excalidraw`](docs/design/04-multi-tenant-rag.excalidraw) |
+### Tenants, subjects and plans
 
-## Tenants, subjects and plans
+Each product is a tenant, each of its end customers is a subject, and each subject has a plan that sets its limits. The runtime does not own accounts or billing: a product proves who the subject is and which plan they have through its credential, and the runtime verifies the credential and enforces the plan.
 
-The runtime serves several products. Each product is a tenant, each end customer of a product is a subject, and each subject has a plan that sets its limits.
-
-Tenants differ along four settings:
-
-| Setting            | Options                                                                                                                  |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------ |
-| Authentication     | Device attestation plus a signed purchase, a signed account token carrying the plan, or anonymous with an allowed origin |
-| Limits             | Messages per subject by plan, a monthly pool per tenant, and per IP for anonymous callers                                |
-| Conversation state | Stored by the runtime, or stateless, where the client sends the history and nothing is kept                              |
-| Tool execution     | In the runtime, on the client device, or no tools                                                                        |
-
-The runtime does not own accounts or billing. Each product proves who the subject is and which plan they bought through its credential, and the runtime verifies that credential and enforces the plan.
-
-## Gateway
-
-The single entry point. A request passes through a pipeline where every stage can reject early, and the response comes back as a separate event stream.
+### Gateway
 
 ![Gateway](docs/design/01-gateway.png)
 
-- **Tenant route** picks the tenant, and with it the authenticator, plans and modes (404).
-- **AuthN plugin** verifies the tenant's own credential against the raw request body (401).
-- **Entitlement** reads the subject and its plan from the verified credential (402 when there is no active plan).
-- **AuthZ** checks what the plan and scopes allow (403).
-- **Validate and caps** checks the body, its size limits and the contract version, before any quota is spent (400).
-- **Session mode** is per tenant: stored by the runtime with an ownership check (404), or stateless, where the client sends the history and nothing is kept.
-- **Quota reserve** applies three limits: messages per subject by plan, a monthly pool per tenant, and per IP for anonymous callers (429). The reservation is settled after the run; a failed run is refunded and a timeout keeps it.
-- **Dispatcher** hands the run and the subject context to the agent core.
-- **Stream hub** fans events out over SSE. Reconnecting with `Last-Event-ID` works only in stored mode.
+- **Tenant route** finds the tenant document, cached for thirty seconds per worker instance.
+- **Origin check** refuses a browser origin the tenant does not list.
+- **Eval pass or authn plugin** verifies the caller. The plugin is chosen by the tenant: an attested device with a store purchase, a signed account token, or anonymous access by allowed origin.
+- **Plan** maps the verified credential to one of the tenant's plans.
+- **Validate and tool pin** checks the body for the tenant's agent kind and, when the client sends a contract hash, that its tools still match.
+- **Pool reserve** holds the worst-case cost of the call against the tenant's monthly pool.
+- **Message quota** counts the call against the subject's monthly messages, by the tenant's counting rule.
 
-## Tools registry
+### Agents and evals
 
-Tools are registered once, shown to the model per tenant, and invoked through a pipeline that enforces policy in code.
+![Agents and evals](docs/design/05-agents-and-evals.png)
 
-![Tools registry](docs/design/02-tools-registry.png)
+A tenant picks one of three agent kinds. Evals reach any of them through the eval pass, on tenants that opt in.
 
-- **Identity:** every tool has an owner and is addressed as `namespace/name@version#hash`, so names never collide.
-- **Pinned by hash:** registration computes a sha256 over the definition, and invoke rejects any call whose hash no longer matches.
-- **Discovery is read-only:** it resolves the tools for the tenant, the plan and the client's contract version, and never prompts.
-- **One policy gate, at invoke time:** reads pass automatically; only write, external and irreversible calls ask for human approval, as a runtime prompt or on the device.
-- **Secrets** are injected by the credential broker at execution and never enter the model context.
-- **Client-run tools:** a tool can be marked to run on the client device. The runtime returns the call, the app runs it, and the result is validated when it comes back.
-- **Sandbox tiers:** remote calls go through an egress allowlist proxy; model-written JavaScript runs in an isolate (QuickJS in WASM first, V8 isolates such as Cloudflare Dynamic Workers later); shell and file work runs in a microVM.
+### Tools
 
-## LLM routing
+![Tools](docs/design/02-tools-registry.png)
 
-Callers ask for a capability tier, never a model name. The router selects a model and then calls it inside a resilience loop.
+- **Contracts** are sets of tools per version, defined in the tenant document and hashed when it is saved.
+- **Where a tool runs** is set per tool. A tool on the client may have any effect, because the client owns the confirmation. A tool the runtime runs must be read-only: a fetch from an allowed host, or a knowledge search.
+- **Each model round** checks every call against the contract, hands client calls to the client, runs the rest, and loops up to the agent's round limit.
+
+### LLM routing
 
 ![LLM routing](docs/design/03-llm-routing.png)
 
-- **Select:** normalize the request, drop models that cannot do the job (422), score the rest by cost, latency and tier, and reserve budget (429).
-- **Call:** try the primary, respect circuit breakers and provider rate limits, and fall back down the ranked list on error or timeout.
-- **Provider adapters** are the only place provider-specific code lives. Provider API keys are read from the secrets vault.
-- **Sticky per run:** a run stays on one model so the provider's prompt cache stays warm.
-- **Usage meter** records real token counts and cost and settles the budget reservation.
-- **Two kinds of limit:** the router guards the tenant's monthly pool in EUR; message caps per subject live in the gateway.
-- **Model settings per tenant:** thinking mode and output caps are part of tenant policy.
-- **No silent retry** once tokens have streamed; the error goes back to the agent loop.
+- **Before the call** the worst case is priced and reserved in the tenant's pool, and the candidates for the tier are ordered, skipping models whose circuit is open.
+- **The call** falls back to the next candidate only when nothing was written and nothing can have been billed. A timeout, or a failure after text began, is never retried and counts as spent.
+- **After the call** the reserve is replaced by the real cost.
 
-## Multi-tenant RAG
+### Knowledge
 
-A write path that ingests documents and a read path that retrieves them, with four stores in between where every row carries a tenant id.
+![Knowledge](docs/design/04-multi-tenant-rag.png)
 
-![Multi-tenant RAG](docs/design/04-multi-tenant-rag.png)
-
-- **Ingest** runs in the background: stamp tenant and ACL, dedupe by content hash, parse, chunk, embed, and write to all stores.
-- **Stores:** raw documents, metadata (the source of truth), a vector index with a namespace per tenant, and a keyword index.
-- **Scope guard** forces the tenant and ACL filter onto every search in code. A query without a tenant fails.
-- **Retrieve:** hybrid vector and keyword search, rerank, then pack chunks into a token budget with citations.
-- **Retrieved text is untrusted data**, because documents can carry prompt injection.
-- **Each chunk records its embedding model version**, and one search never mixes versions.
-- **Optional per tenant:** a small corpus goes in the cached prompt or behind a fetch tool.
-
-## Open decisions
-
-- Platform and language.
-- How a web product proves an account and its plan to the runtime. Drawn as a signed token issued by the product's backend.
-- Tenant isolation in RAG: a shared index with a namespace per tenant (drawn) or a separate index per tenant.
-- Whether the dispatcher calls the agent core directly (drawn) or through a queue.
+- **Documents** are added through the admin API, chunked with their headings, and embedded when the tenant names an embedding model.
+- **Each tenant has its own store.** No query can name another tenant.
+- **Search** ranks by keyword and by vector, fuses the two, and returns passages with their source. A document restricted to plans is visible only to subjects on those plans.

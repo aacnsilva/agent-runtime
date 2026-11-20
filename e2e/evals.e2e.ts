@@ -209,12 +209,12 @@ describe("the eval runner", () => {
         {
           id: "fetches",
           group: "tools",
-          questions: ["TOOLCALL get_lesson slug=intro"],
+          questions: ["TOOLCALL get_guide slug=intro"],
           expect: {
-            tools: ["get_lesson"],
-            calls: [{ tool: "get_lesson", times: 1, input: { slug: "intro" } }],
+            tools: ["get_guide"],
+            calls: [{ tool: "get_guide", times: 1, input: { slug: "intro" } }],
             noCalls: [{ tool: "show_card" }],
-            contains: ["MARKER-LESSON-INTRO"],
+            contains: ["MARKER-GUIDE-INTRO"],
             maxModelCalls: 2,
           },
         },

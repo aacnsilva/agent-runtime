@@ -35,7 +35,7 @@ describe("chat with tools that run on the client", () => {
     const reply = await post(
       tenant.id,
       await tokenFor(tenant, "u-answer"),
-      question("ANSWERPROBE what is a chord"),
+      question("ANSWERPROBE what is a derailleur"),
     );
     expect(reply.status).toBe(200);
     expect(reply.body.stopReason).toBe("end_turn");
@@ -55,16 +55,16 @@ describe("chat with tools that run on the client", () => {
 
   it("hands a tool call to the client and finishes when the result comes back, for one message", async () => {
     const token = await tokenFor(tenant, "u-tools");
-    const asked = question("TOOLCALL lookup topic=chords");
+    const asked = question("TOOLCALL lookup topic=brakes");
     const first = await post(tenant.id, token, asked);
     expect(first.body.stopReason).toBe("tool_use");
     expect(first.body.content).toHaveLength(1);
     const call = first.body.content?.[0];
-    expect(call).toMatchObject({ type: "tool_use", name: "lookup", input: { topic: "chords" } });
+    expect(call).toMatchObject({ type: "tool_use", name: "lookup", input: { topic: "brakes" } });
     const second = await post(tenant.id, token, {
       ...asked,
       messages: [
-        { role: "user", content: "TOOLCALL lookup topic=chords" },
+        { role: "user", content: "TOOLCALL lookup topic=brakes" },
         { role: "assistant", content: first.body.content },
         {
           role: "user",
@@ -120,7 +120,7 @@ describe("chat with tools that run on the client", () => {
 
   it("streams an answer, and streams nothing of the lead-in before a tool call", async () => {
     const token = await tokenFor(tenant, "u-stream", "pro");
-    const answered = await stream(tenant.id, token, question("Tell me about scales"));
+    const answered = await stream(tenant.id, token, question("Tell me about gears"));
     const deltas = answered.filter((event) => event.type === "delta");
     const done = answered.at(-1);
     expect(deltas.length).toBeGreaterThan(1);
@@ -130,7 +130,7 @@ describe("chat with tools that run on the client", () => {
         .join("")
         .trimEnd(),
     ).toBe(done?.content?.[0]?.text);
-    const called = await stream(tenant.id, token, question("TOOLCALL lookup topic=scales"));
+    const called = await stream(tenant.id, token, question("TOOLCALL lookup topic=gears"));
     expect(called).toHaveLength(1);
     expect(called[0]).toMatchObject({ type: "done", stopReason: "tool_use" });
     expect(called[0]?.content?.[0]?.name).toBe("lookup");
@@ -139,7 +139,7 @@ describe("chat with tools that run on the client", () => {
   it.each([
     ["contract_version", question("hi", { contractVersion: 9 })],
     ["bad_context", question("hi", { context: {} })],
-    ["bad_context", question("hi", { context: { locale: "en", topics: ["drums"] } })],
+    ["bad_context", question("hi", { context: { locale: "en", topics: ["rockets"] } })],
     ["question_too_long", question("x".repeat(801))],
     ["bad_role", question("hi", { messages: [{ role: "assistant", content: "hi" }] })],
     [
@@ -206,33 +206,33 @@ describe("chat with tools that run on the client", () => {
       tools: CLIENT_TOOLS,
       plans: { basic: { messagesPerMonth: 1 } },
       agent: {
-        refusal: { fallback: "Only the lessons.", byLanguage: { es: "Solo las lecciones." } },
+        refusal: { fallback: "Only the guides.", byLanguage: { es: "Solo las lecciones." } },
       },
       extra: {
         messages: {
           message_cap: "You have used this month's questions.",
-          upstream: "Our tutor is resting.",
+          upstream: "Our helper is resting.",
         },
       },
     });
     const refusedInSpanish = await post(
       worded.id,
       await tokenFor(worded, "u-es"),
-      question("REFUSAL ¿qué es el capo?"),
+      question("REFUSAL ¿qué es el piñón?"),
     );
     expect(textOf(refusedInSpanish)).toBe("Solo las lecciones.");
     const refusedByLocale = await post(
       worded.id,
       await tokenFor(worded, "u-en"),
-      question("REFUSAL capo"),
+      question("REFUSAL sprocket"),
     );
-    expect(textOf(refusedByLocale)).toBe("Only the lessons.");
+    expect(textOf(refusedByLocale)).toBe("Only the guides.");
     const failed = await post(
       worded.id,
       await tokenFor(worded, "u-down"),
       question("UPSTREAM500 now"),
     );
-    expect(failed.body.message).toBe("Our tutor is resting.");
+    expect(failed.body.message).toBe("Our helper is resting.");
     const capped = await post(worded.id, await tokenFor(worded, "u-es"), question("one more"));
     expect(capped.status).toBe(429);
     expect(capped.body.message).toBe("You have used this month's questions.");
@@ -245,13 +245,13 @@ describe("chat with tools that run on the client", () => {
       agent: { counting: "every_call" },
     });
     const token = await tokenFor(strict, "u-strict");
-    const asked = question("TOOLCALL lookup topic=chords");
+    const asked = question("TOOLCALL lookup topic=brakes");
     const first = await post(strict.id, token, asked);
     const call = first.body.content?.[0];
     const second = await post(strict.id, token, {
       ...asked,
       messages: [
-        { role: "user", content: "TOOLCALL lookup topic=chords" },
+        { role: "user", content: "TOOLCALL lookup topic=brakes" },
         { role: "assistant", content: first.body.content },
         { role: "user", content: [{ type: "tool_result", tool_use_id: call?.id, content: "ok" }] },
       ],

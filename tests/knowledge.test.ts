@@ -24,12 +24,12 @@ describe("chunking", () => {
   });
 
   it("starts a chunk at each heading and carries the heading into later chunks of its section", () => {
-    const text = `# Tuning\n\n${"Tune each string in turn. ".repeat(4)}\n\n${"Check with a tuner. ".repeat(4)}\n\n# Chords\n\nPress close to the fret.`;
+    const text = `# Tyres\n\n${"Pump each tyre in turn. ".repeat(4)}\n\n${"Check with a gauge. ".repeat(4)}\n\n# Brakes\n\nReplace them below one millimetre.`;
     const chunks = chunkText(text, 130);
     expect(chunks).toHaveLength(3);
-    expect(chunks[0]?.startsWith("# Tuning\n\nTune each")).toBe(true);
-    expect(chunks[1]?.startsWith("# Tuning\nCheck with a tuner.")).toBe(true);
-    expect(chunks[2]).toBe("# Chords\n\nPress close to the fret.");
+    expect(chunks[0]?.startsWith("# Tyres\n\nPump each")).toBe(true);
+    expect(chunks[1]?.startsWith("# Tyres\nCheck with a gauge.")).toBe(true);
+    expect(chunks[2]).toBe("# Brakes\n\nReplace them below one millimetre.");
   });
 
   it("splits a paragraph longer than a chunk at a sentence or word, never mid-word", () => {
@@ -62,11 +62,11 @@ describe("ranking", () => {
 
   it("scores a rare matching term above a common one and ignores unrelated text", () => {
     const documents = [
-      tokenize("the capo raises the pitch"),
-      tokenize("the the the strings"),
-      tokenize("drums and cymbals"),
+      tokenize("the pump raises the pressure"),
+      tokenize("the the the spokes"),
+      tokenize("saddles and pedals"),
     ];
-    const scores = bm25(tokenize("the capo"), documents);
+    const scores = bm25(tokenize("the pump"), documents);
     expect(rankedIndexes(scores)).toEqual([0, 1]);
     expect(scores[2]).toBe(0);
   });
@@ -90,18 +90,18 @@ describe("ranking", () => {
 
 describe("search", () => {
   const chunks = [
-    chunk({ documentId: "open", text: "the capo raises the pitch" }),
-    chunk({ documentId: "paid", text: "sweep picking arpeggios", plans: ["pro"] }),
-    chunk({ documentId: "other", text: "drum rudiments" }),
+    chunk({ documentId: "open", text: "the pump raises the pressure" }),
+    chunk({ documentId: "paid", text: "wheel truing spoke key", plans: ["pro"] }),
+    chunk({ documentId: "other", text: "saddle heights" }),
   ];
 
   it("returns the passages that match, best first, up to the requested number", () => {
-    const hits = searchChunks(chunks, { ...query, query: "capo pitch", topK: 1 });
+    const hits = searchChunks(chunks, { ...query, query: "pump pressure", topK: 1 });
     expect(hits.map((hit) => hit.documentId)).toEqual(["open"]);
   });
 
   it("hides a passage restricted to a plan from every other plan and from no plan", () => {
-    const asking = { ...query, query: "sweep picking" };
+    const asking = { ...query, query: "wheel truing" };
     expect(searchChunks(chunks, asking)).toEqual([]);
     expect(searchChunks(chunks, { ...asking, plan: "basic" })).toEqual([]);
     expect(searchChunks(chunks, { ...asking, plan: "pro" })[0]?.documentId).toBe("paid");
@@ -122,6 +122,6 @@ describe("search", () => {
   });
 
   it("returns nothing when nothing matches", () => {
-    expect(searchChunks(chunks, { ...query, query: "saxophone" })).toEqual([]);
+    expect(searchChunks(chunks, { ...query, query: "submarine" })).toEqual([]);
   });
 });

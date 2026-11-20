@@ -49,17 +49,17 @@ describe("stored sessions with tools the runtime runs", () => {
 
   it("runs a fetch tool itself and answers in one request, for one message", async () => {
     const token = await tokenFor(tenant, "s-fetch", "pro");
-    const reply = await post(tenant.id, token, turn("TOOLCALL get_lesson slug=intro"));
+    const reply = await post(tenant.id, token, turn("TOOLCALL get_guide slug=intro"));
     expect(reply.body.stopReason).toBe("end_turn");
-    expect(textOf(reply)).toContain("MARKER-LESSON-INTRO");
+    expect(textOf(reply)).toContain("MARKER-GUIDE-INTRO");
     expect(reply.body.quota).toEqual({ used: 1, limit: 50 });
   });
 
   it("will not fetch outside the tool's own address", async () => {
     const token = await tokenFor(tenant, "s-escape", "pro");
-    const reply = await post(tenant.id, token, turn("TOOLCALL get_lesson slug=../../admin"));
+    const reply = await post(tenant.id, token, turn("TOOLCALL get_guide slug=../../admin"));
     expect(textOf(reply)).toContain("do not name something this tool can fetch");
-    const missing = await post(tenant.id, token, turn("TOOLCALL get_lesson slug=nothing-here"));
+    const missing = await post(tenant.id, token, turn("TOOLCALL get_guide slug=nothing-here"));
     expect(textOf(missing)).toContain("The source answered 404");
   });
 
@@ -107,7 +107,7 @@ describe("stored sessions with tools the runtime runs", () => {
     const reply = await post(
       tenant.id,
       await tokenFor(tenant, "s-loop", "pro"),
-      turn("LOOP get_lesson slug=intro"),
+      turn("LOOP get_guide slug=intro"),
     );
     expect(reply.status).toBe(502);
     expect(reply.body.error).toBe("too_many_rounds");
@@ -115,7 +115,7 @@ describe("stored sessions with tools the runtime runs", () => {
 
   it("streams only the final answer of a tool loop", async () => {
     const token = await tokenFor(tenant, "s-stream", "pro");
-    const events = await stream(tenant.id, token, turn("TOOLCALL get_lesson slug=intro"));
+    const events = await stream(tenant.id, token, turn("TOOLCALL get_guide slug=intro"));
     const done = events.at(-1);
     expect(done).toMatchObject({ type: "done", stopReason: "end_turn" });
     expect(done?.sessionId).toMatch(/^[0-9a-f-]{36}$/);
@@ -124,6 +124,6 @@ describe("stored sessions with tools the runtime runs", () => {
       .map((event) => event.text)
       .join("");
     expect(streamed).not.toContain("Let me look that up");
-    expect(done?.content?.[0]?.text).toContain("MARKER-LESSON-INTRO");
+    expect(done?.content?.[0]?.text).toContain("MARKER-GUIDE-INTRO");
   });
 });

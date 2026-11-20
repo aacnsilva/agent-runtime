@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import tutor from "../examples/tenants/tutor.tenant.json" with { type: "json" };
+import course from "../examples/tenants/course.tenant.json" with { type: "json" };
 import { languageInstruction, refusalFor, systemFor, systemTail } from "../src/agent/chat-prompt";
 import { createChatStream } from "../src/agent/chat-stream";
 import { parseChat } from "../src/gateway/chat-body";
@@ -13,9 +13,9 @@ import { canonical, contractHash } from "../src/tools/contract-hash";
 import { resolveUrl } from "../src/tools/http-tool";
 
 const agentOf = (overrides: Record<string, unknown> = {}): ChatAgent => {
-  const tenant = tenantSchema.parse({ ...tutor, agent: { ...tutor.agent, ...overrides } });
+  const tenant = tenantSchema.parse({ ...course, agent: { ...course.agent, ...overrides } });
   if (tenant.agent.kind !== "chat") {
-    throw new Error("the tutor example is a chat tenant");
+    throw new Error("the course example is a chat tenant");
   }
   return tenant.agent;
 };
@@ -42,7 +42,7 @@ const round = (id: string, result: string): unknown[] => [
 describe("chat request", () => {
   const stateless = agentOf({
     state: "stateless",
-    contracts: [{ version: 1, allowsImages: true, tools: [tutor.agent.contracts[0]?.tools[2]] }],
+    contracts: [{ version: 1, allowsImages: true, tools: [course.agent.contracts[0]?.tools[2]] }],
     input: { maxImageBytes: 1000 },
   });
 
@@ -135,20 +135,20 @@ describe("chat prompt", () => {
   const agent = agentOf();
 
   it("names the language the question is written in, and falls back to the locale on a tie", () => {
-    expect(languageInstruction(agent, "what is the capo", { locale: "es" })).toBe(
+    expect(languageInstruction(agent, "what is the sprocket", { locale: "es" })).toBe(
       "Answer in English.",
     );
-    expect(languageInstruction(agent, "¿qué es el capo?", { locale: "en" })).toBe(
+    expect(languageInstruction(agent, "¿qué es el piñón?", { locale: "en" })).toBe(
       "Responde en español.",
     );
-    expect(languageInstruction(agent, "capo", { locale: "es" })).toBe("Responde en español.");
-    expect(languageInstruction(agent, "capo", {})).toBe("Answer in English.");
+    expect(languageInstruction(agent, "chain-oil", { locale: "es" })).toBe("Responde en español.");
+    expect(languageInstruction(agent, "chain-oil", {})).toBe("Answer in English.");
   });
 
   it("puts the context, then the reminder with the language, after the cached prompt", () => {
-    const messages: ModelMessage[] = [{ role: "user", content: "what is the capo" }];
-    expect(systemTail(agent, messages, { locale: "en", topics: ["chords"] })).toEqual([
-      "Locale: en\nTopics: chords",
+    const messages: ModelMessage[] = [{ role: "user", content: "what is the sprocket" }];
+    expect(systemTail(agent, messages, { locale: "en", topics: ["brakes"] })).toEqual([
+      "Locale: en\nTopics: brakes",
       `${agent.reminder ?? ""} Answer in English.`,
     ]);
   });
@@ -190,9 +190,9 @@ describe("prompt and refusal chosen by tenant rules", () => {
   });
 
   it("refuses in the language of the question, then of the locale, then in the fallback", () => {
-    expect(refusalFor(agent, "¿qué es el capo?", { locale: "en" })).toBe("No, en español.");
-    expect(refusalFor(agent, "capo", { locale: "es" })).toBe("No, en español.");
-    expect(refusalFor(agent, "what is the capo", { locale: "es" })).toBe("No.");
+    expect(refusalFor(agent, "¿qué es el piñón?", { locale: "en" })).toBe("No, en español.");
+    expect(refusalFor(agent, "chain-oil", { locale: "es" })).toBe("No, en español.");
+    expect(refusalFor(agent, "what is the sprocket", { locale: "es" })).toBe("No.");
   });
 });
 
@@ -267,27 +267,27 @@ describe("session history", () => {
 });
 
 describe("tools", () => {
-  const hosts = ["lessons.example"];
+  const hosts = ["guides.example"];
 
   it("fills an address only with plain identifiers and only for an allowed host", () => {
-    const template = "https://lessons.example/api/{course}/{slug}.json";
-    expect(resolveUrl(template, { course: "guitar", slug: "lesson-1" }, hosts)?.href).toBe(
-      "https://lessons.example/api/guitar/lesson-1.json",
+    const template = "https://guides.example/api/{course}/{slug}.json";
+    expect(resolveUrl(template, { course: "bikes", slug: "guide-1" }, hosts)?.href).toBe(
+      "https://guides.example/api/bikes/guide-1.json",
     );
     for (const slug of ["../admin", "a/b", "a?b=c", "", 5.5, null, "x".repeat(101), "a..b"]) {
-      const resolved = resolveUrl(template, { course: "guitar", slug }, hosts);
+      const resolved = resolveUrl(template, { course: "bikes", slug }, hosts);
       expect(slug === 5.5 ? resolved?.pathname : resolved).toBe(
-        slug === 5.5 ? "/api/guitar/5.5.json" : null,
+        slug === 5.5 ? "/api/bikes/5.5.json" : null,
       );
     }
-    expect(resolveUrl(template, { course: "guitar" }, hosts)).toBeNull();
+    expect(resolveUrl(template, { course: "bikes" }, hosts)).toBeNull();
     expect(resolveUrl("https://evil.example/{slug}", { slug: "x" }, hosts)).toBeNull();
   });
 
   it("hashes a contract the same whatever the key order, and differently when a tool changes", async () => {
     const [contract] = agentOf().contracts;
     if (contract === undefined) {
-      throw new Error("the tutor example has a contract");
+      throw new Error("the course example has a contract");
     }
     expect(canonical({ b: [1, { d: 1, c: 2 }], a: null })).toBe('{"a":null,"b":[1,{"c":2,"d":1}]}');
     const reordered = {

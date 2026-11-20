@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 
+import course from "../examples/tenants/course.tenant.json" with { type: "json" };
 import demo from "../examples/tenants/demo.tenant.json" with { type: "json" };
-import tutor from "../examples/tenants/tutor.tenant.json" with { type: "json" };
 import { tenantSchema } from "../src/tenants/schema";
 
 describe("tenant schema", () => {
   it("accepts both example tenants", () => {
     expect(tenantSchema.safeParse(demo).success).toBe(true);
-    expect(tenantSchema.safeParse(tutor).success).toBe(true);
+    expect(tenantSchema.safeParse(course).success).toBe(true);
   });
 
   it.each([
@@ -15,16 +15,16 @@ describe("tenant schema", () => {
     ["an authenticated tenant with no plans", { plans: {} }],
     ["a fetch tool whose host is not on the egress list", { egress: { allowedHosts: [] } }],
   ])("refuses %s", (_name, overrides) => {
-    expect(tenantSchema.safeParse({ ...tutor, ...overrides }).success).toBe(false);
+    expect(tenantSchema.safeParse({ ...course, ...overrides }).success).toBe(false);
   });
 
   it("refuses a tool the runtime runs that is not read-only, and server tools on a stateless agent", () => {
-    const [contract] = tutor.agent.contracts;
+    const [contract] = course.agent.contracts;
     const [fetchTool] = contract?.tools ?? [];
     const writer = { ...contract, tools: [{ ...fetchTool, effect: "write" }] };
-    const writes = { ...tutor, agent: { ...tutor.agent, contracts: [writer] } };
+    const writes = { ...course, agent: { ...course.agent, contracts: [writer] } };
     expect(tenantSchema.safeParse(writes).success).toBe(false);
-    const stateless = { ...tutor, agent: { ...tutor.agent, state: "stateless" } };
+    const stateless = { ...course, agent: { ...course.agent, state: "stateless" } };
     expect(tenantSchema.safeParse(stateless).success).toBe(false);
   });
 

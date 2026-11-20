@@ -53,11 +53,11 @@ const CHUNK_CHARS = 9;
 const FIRST_TOKEN_DELAY_MS = 30;
 const TOOL_PATTERN = /(?:TOOLCALL|LOOP|TWOSTEP) (\w+)(?: (\w+)=(.+))?/;
 const VECTOR_SIZE = 48;
-const LESSONS: Record<string, unknown> = {
+const GUIDES: Record<string, unknown> = {
   intro: {
     slug: "intro",
-    title: "First chords",
-    body: "The E minor chord uses two fingers. MARKER-LESSON-INTRO",
+    title: "Fixing a flat",
+    body: "Take the wheel off before the tyre. MARKER-GUIDE-INTRO",
   },
 };
 
@@ -309,10 +309,10 @@ const handleEmbeddings = async (
   sendJson(response, 200, { data: body.input.map((text) => ({ embedding: vectorOf(text) })) });
 };
 
-const handleLesson = (url: string, response: ServerResponse): void => {
-  const slug = /^\/lessons\/([a-z0-9-]+)\.json$/.exec(url)?.[1] ?? "";
-  const lesson = LESSONS[slug];
-  sendJson(response, lesson === undefined ? 404 : 200, lesson ?? { error: "not_found" });
+const handleGuide = (url: string, response: ServerResponse): void => {
+  const slug = /^\/guides\/([a-z0-9-]+)\.json$/.exec(url)?.[1] ?? "";
+  const guide = GUIDES[slug];
+  sendJson(response, guide === undefined ? 404 : 200, guide ?? { error: "not_found" });
 };
 
 const handleMessages = async (
@@ -352,8 +352,8 @@ const handle = async (
     await handleEmbeddings(request, response);
     return;
   }
-  if (url.startsWith("/lessons/")) {
-    handleLesson(url, response);
+  if (url.startsWith("/guides/")) {
+    handleGuide(url, response);
     return;
   }
   await handleMessages(request, response, calls);

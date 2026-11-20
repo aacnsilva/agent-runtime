@@ -38,13 +38,13 @@ const search = async (tenant: CreatedTenant, asker: Asker, query: string): Promi
     ),
   );
 
-const CHORDS = {
-  title: "Barre chords",
-  text: "# Barre chords\n\nKeep the thumb behind the neck. MARKER-CHORDS\n\nPress close to the fret.",
+const BRAKES = {
+  title: "Brake pads",
+  text: "# Brake pads\n\nCheck the pads for wear every month. MARKER-BRAKES\n\nReplace them below one millimetre.",
 };
 const ADVANCED = {
-  title: "Sweep picking",
-  text: "Sweep picking plays arpeggios in one motion. MARKER-ADVANCED",
+  title: "Wheel truing",
+  text: "Wheel truing aligns the rim with a spoke key. MARKER-WHEELS",
   plans: ["pro"],
 };
 
@@ -57,42 +57,42 @@ describe("knowledge retrieval per tenant", () => {
       tools: serverTools(),
       extra: { knowledge: { embeddingModel: "mock-embed", topK: 3 } },
     });
-    await putDocument(tenant, "barre-chords", CHORDS);
-    await putDocument(tenant, "sweep-picking", ADVANCED);
+    await putDocument(tenant, "brake-pads", BRAKES);
+    await putDocument(tenant, "wheel-truing", ADVANCED);
   });
 
   it("chunks and embeds a document once, and skips an unchanged one", async () => {
-    const stored = await putDocument(tenant, "tuning", {
-      title: "Tuning",
-      text: "Standard tuning is EADGBE.",
+    const stored = await putDocument(tenant, "tyre-pressure", {
+      title: "Tyre pressure",
+      text: "Road tyres run at six to eight bar.",
     });
     expect(stored).toMatchObject({ ok: true, chunks: 1, embedded: true });
-    const again = await putDocument(tenant, "tuning", {
-      title: "Tuning",
-      text: "Standard tuning is EADGBE.",
+    const again = await putDocument(tenant, "tyre-pressure", {
+      title: "Tyre pressure",
+      text: "Road tyres run at six to eight bar.",
     });
     expect(again).toMatchObject({ ok: true, unchanged: true });
     const list = (await (await documents(tenant, "")).json()) as { id: string }[];
-    expect(list.map((entry) => entry.id)).toEqual(["barre-chords", "sweep-picking", "tuning"]);
+    expect(list.map((entry) => entry.id)).toEqual(["brake-pads", "tyre-pressure", "wheel-truing"]);
   });
 
   it("finds a passage and cites the document it came from", async () => {
     const answer = await search(
       tenant,
       { subject: "k-basic", plan: "basic" },
-      "thumb behind the neck",
+      "pads for wear every month",
     );
-    expect(answer).toContain("MARKER-CHORDS");
-    expect(answer).toContain("Barre chords (barre-chords)");
+    expect(answer).toContain("MARKER-BRAKES");
+    expect(answer).toContain("Brake pads (brake-pads)");
   });
 
   it("shows a document restricted to a plan only to subjects on that plan", async () => {
     expect(
-      await search(tenant, { subject: "k-basic-2", plan: "basic" }, "sweep picking arpeggios"),
-    ).not.toContain("MARKER-ADVANCED");
+      await search(tenant, { subject: "k-basic-2", plan: "basic" }, "wheel truing spoke key"),
+    ).not.toContain("MARKER-WHEELS");
     expect(
-      await search(tenant, { subject: "k-pro", plan: "pro" }, "sweep picking arpeggios"),
-    ).toContain("MARKER-ADVANCED");
+      await search(tenant, { subject: "k-pro", plan: "pro" }, "wheel truing spoke key"),
+    ).toContain("MARKER-WHEELS");
   });
 
   it("never returns another tenant's documents", async () => {
@@ -100,38 +100,38 @@ describe("knowledge retrieval per tenant", () => {
     const answer = await search(
       other,
       { subject: "k-other", plan: "pro" },
-      "thumb behind the neck",
+      "pads for wear every month",
     );
     expect(answer).toContain("Nothing in the knowledge base matched");
   });
 
   it("forgets a deleted document", async () => {
-    await putDocument(tenant, "capo", {
-      title: "Capo",
-      text: "A capo raises the pitch. MARKER-CAPO",
+    await putDocument(tenant, "chain-oil", {
+      title: "Chain oil",
+      text: "Chain oil keeps the links quiet. MARKER-CHAIN",
     });
     expect(
-      await search(tenant, { subject: "k-del", plan: "basic" }, "capo raises pitch"),
-    ).toContain("MARKER-CAPO");
-    expect(await (await documents(tenant, "/capo", { method: "DELETE" })).json()).toEqual({
+      await search(tenant, { subject: "k-del", plan: "basic" }, "chain oil links quiet"),
+    ).toContain("MARKER-CHAIN");
+    expect(await (await documents(tenant, "/chain-oil", { method: "DELETE" })).json()).toEqual({
       ok: true,
       removed: true,
     });
     expect(
-      await search(tenant, { subject: "k-del-2", plan: "basic" }, "capo raises pitch"),
-    ).not.toContain("MARKER-CAPO");
+      await search(tenant, { subject: "k-del-2", plan: "basic" }, "chain oil links quiet"),
+    ).not.toContain("MARKER-CHAIN");
   });
 
   it("falls back to keyword search for a tenant with no embedding model", async () => {
     const keywordOnly = await createChatTenant({ state: "stored", tools: serverTools() });
-    const stored = await putDocument(keywordOnly, "strumming", {
-      title: "Strumming",
-      text: "Strumming patterns use down and up strokes. MARKER-STRUM",
+    const stored = await putDocument(keywordOnly, "gear-indexing", {
+      title: "Gear indexing",
+      text: "Gear indexing sets each click to one sprocket. MARKER-GEARS",
     });
     expect(stored).toMatchObject({ chunks: 1, embedded: false });
     expect(
-      await search(keywordOnly, { subject: "k-kw", plan: "basic" }, "strumming patterns"),
-    ).toContain("MARKER-STRUM");
+      await search(keywordOnly, { subject: "k-kw", plan: "basic" }, "gear indexing sprocket"),
+    ).toContain("MARKER-GEARS");
   });
 
   it("keeps document management behind the admin token and validates what it is given", async () => {
