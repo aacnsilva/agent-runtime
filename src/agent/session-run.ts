@@ -44,7 +44,8 @@ const combine = (total: RoundResult | null, round: RoundResult): RoundResult =>
     : {
         ...round,
         attempts: total.attempts + round.attempts,
-        toolsCalled: [...total.toolsCalled, ...round.toolsCalled],
+        allCalls: [...total.allCalls, ...round.allCalls],
+        serverResults: [...total.serverResults, ...round.serverResults],
         usage: addUsage(total.usage, round.usage),
         costNanoEur: total.costNanoEur + round.costNanoEur,
       };
@@ -117,7 +118,7 @@ const afterToolCalls = async (
   turn: SessionTurn,
   progress: Progress,
   round: RoundResult,
-): Promise<{ pending: Pending | null; messages: ModelMessage[] }> => {
+): Promise<{ pending: Pending | null; messages: ModelMessage[]; executed: string[] }> => {
   const { contract } = turn.base;
   const messages: ModelMessage[] = [
     ...progress.messages,
@@ -128,8 +129,13 @@ const afterToolCalls = async (
   const serverResults = await Promise.all(
     serverCalls.map((call) => executeServerCall(turn.tools, contract, call)),
   );
+  const executed = serverResults.map((result) => result.content);
   if (clientCalls.length === 0) {
-    return { pending: null, messages: [...messages, { role: "user", content: serverResults }] };
+    return {
+      pending: null,
+      messages: [...messages, { role: "user", content: serverResults }],
+      executed,
+    };
   }
   const pending = {
     orderedIds: round.calls.map((call) => call.id),
@@ -137,7 +143,7 @@ const afterToolCalls = async (
     serverResults,
     toolRounds: progress.toolRounds + 1,
   };
-  return { pending, messages };
+  return { pending, messages, executed };
 };
 
 const TOO_MANY_ROUNDS = {
@@ -146,7 +152,8 @@ const TOO_MANY_ROUNDS = {
   body: { error: "too_many_rounds", message: "That took too many steps. Ask again more simply." },
   content: [],
   calls: [],
-  toolsCalled: [],
+  allCalls: [],
+  serverResults: [],
   quota: null,
   model: null,
   attempts: 0,
@@ -185,6 +192,7 @@ export const runSessionTurn = async (turn: SessionTurn): Promise<RoundResult> =>
       return total;
     }
     const next = await afterToolCalls(turn, progress, result);
+    total = { ...total, serverResults: [...total.serverResults, ...next.executed] };
     if (next.pending !== null) {
       const { clientIds } = next.pending;
       await persist(turn, state, next);

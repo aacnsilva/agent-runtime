@@ -54,22 +54,32 @@ const spendFor = (context: RequestContext, tenant: Tenant, principal: Principal)
   };
 };
 
-const traced = (call: Call, run: Finished): Finished =>
-  call.principal.evaluated
-    ? {
-        ...run,
-        body: {
-          ...run.body,
-          eval: {
-            model: run.model,
-            modelCalls: run.attempts,
-            tools: run.toolsCalled ?? [],
-            usage: run.usage,
-            costNanoEur: run.costNanoEur,
-          },
-        },
-      }
-    : run;
+const withTenantMessage = (
+  tenant: Tenant,
+  body: Record<string, unknown>,
+): Record<string, unknown> => {
+  const code = body["error"];
+  const message = typeof code === "string" ? tenant.messages[code] : undefined;
+  return message === undefined ? body : { ...body, message };
+};
+
+const traceOf = (run: Finished): Record<string, unknown> => {
+  const calls = (run.allCalls ?? []).map((call) => ({ name: call.name, input: call.input }));
+  return {
+    model: run.model,
+    modelCalls: run.attempts,
+    tools: calls.map((call) => call.name),
+    calls,
+    toolResults: run.serverResults ?? [],
+    usage: run.usage,
+    costNanoEur: run.costNanoEur,
+  };
+};
+
+const traced = (call: Call, run: Finished): Finished => {
+  const body = withTenantMessage(call.tenant, run.body);
+  return { ...run, body: call.principal.evaluated ? { ...body, eval: traceOf(run) } : body };
+};
 
 const finalEvent = (run: Finished): StreamEvent => ({
   type: run.status === 200 ? "done" : "error",
@@ -244,13 +254,25 @@ const respond = async (context: RequestContext, tenant: Tenant): Promise<Respons
   return agent.state === "stored" ? storedResponse(call, agent) : statelessResponse(call, agent);
 };
 
+const messageOf = (tenant: Tenant, rejection: Rejection): { message?: string } => {
+  const message = tenant.messages[rejection.code] ?? rejection.publicMessage;
+  return message === undefined ? {} : { message };
+};
+
 export const rejected = (
   context: RequestContext,
   tenant: Tenant,
   rejection: Rejection,
 ): Response => {
   recordRejected(context, tenant.id, rejection);
-  const response = rejectionResponse(rejection);
+  const response = rejectionResponse(
+    new Rejection(rejection.status, rejection.code, {
+      ...(rejection.retryAfterSeconds === undefined
+        ? {}
+        : { retryAfterSeconds: rejection.retryAfterSeconds }),
+      ...messageOf(tenant, rejection),
+    }),
+  );
   return rejection.code === "origin"
     ? response
     : withHeaders(response, corsHeaders(context.request, tenant.authn.allowedOrigins));

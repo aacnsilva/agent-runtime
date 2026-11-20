@@ -6,10 +6,13 @@ export interface QuotaState {
   free: number;
 }
 
+export type Counting = "first_round_free" | "every_call" | "questions_only";
+
 export interface QuotaBegin {
   now: number;
   limit: number;
   toolRounds: number;
+  counting: Counting;
 }
 
 export interface QuotaGrant {
@@ -46,13 +49,28 @@ const current = (state: QuotaState, now: number): QuotaState => {
   return state.month === month ? state : { month, count: 0, free: 0 };
 };
 
+interface Charge {
+  spent: 0 | 1;
+  usedFreeRound: boolean;
+}
+
+const chargeFor = (state: QuotaState, input: QuotaBegin): Charge => {
+  if (input.counting === "every_call") {
+    return { spent: 1, usedFreeRound: false };
+  }
+  if (input.counting === "questions_only") {
+    return { spent: input.toolRounds === 0 ? 1 : 0, usedFreeRound: false };
+  }
+  const usedFreeRound = input.toolRounds === FIRST_ROUND && state.free < state.count;
+  return { spent: usedFreeRound ? 0 : 1, usedFreeRound };
+};
+
 export const beginQuota = (
   previous: QuotaState,
   input: QuotaBegin,
 ): QuotaStep<QuotaGrant | QuotaRefusal> => {
   const state = current(previous, input.now);
-  const usedFreeRound = input.toolRounds === FIRST_ROUND && state.free < state.count;
-  const spent = usedFreeRound ? 0 : 1;
+  const { spent, usedFreeRound } = chargeFor(state, input);
   if (spent === 1 && state.count >= input.limit) {
     return {
       state,

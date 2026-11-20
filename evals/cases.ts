@@ -4,6 +4,12 @@ import { z } from "zod";
 
 const texts = z.array(z.string().min(1)).max(40);
 
+const callSchema = z.strictObject({
+  tool: z.string().min(1),
+  times: z.number().int().min(0).optional(),
+  input: z.unknown().optional(),
+});
+
 const expectSchema = z.strictObject({
   tools: texts.optional(),
   anyTool: texts.optional(),
@@ -19,12 +25,16 @@ const expectSchema = z.strictObject({
   stopReason: z.string().optional(),
   maxModelCalls: z.number().int().positive().optional(),
   maxSeconds: z.number().positive().optional(),
+  calls: z.array(callSchema).max(20).optional(),
+  noCalls: z.array(callSchema).max(20).optional(),
+  grounded: z.boolean().optional(),
 });
 
 const caseSchema = z.strictObject({
   id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,60}$/),
   group: z.string().min(1).max(40),
   questions: z.array(z.string().min(1)).min(1).max(10),
+  image: z.string().min(1).optional(),
   context: z.record(z.string(), z.unknown()).optional(),
   toolResults: z.record(z.string(), z.string()).optional(),
   expect: expectSchema,

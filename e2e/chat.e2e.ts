@@ -174,6 +174,91 @@ describe("chat with tools that run on the client", () => {
     expect(reply.body.error).toBe(code);
   });
 
+  it("chooses the prompt by the client's declared version, when the tenant has rules for it", async () => {
+    const newer = "The prompt for clients from version two. ".repeat(3);
+    const versioned = await createChatTenant({
+      state: "stateless",
+      tools: CLIENT_TOOLS,
+      agent: {
+        versionField: "appVersion",
+        systems: [{ versionAtLeast: "2.0.0", system: newer }],
+        context: [
+          { name: "locale", label: "Locale", kind: "text" },
+          { name: "appVersion", label: "App version", kind: "text", required: false },
+        ],
+      },
+    });
+    const token = await tokenFor(versioned, "u-version");
+    const withVersion = (text: string, appVersion: string): unknown =>
+      question(text, { context: { locale: "en", appVersion } });
+    await post(versioned.id, token, withVersion("VERSIONPROBE new", "2.1.0"));
+    await post(versioned.id, token, withVersion("VERSIONPROBE old", "1.9.0"));
+    const sizes = (await providerCalls())
+      .filter((call) => call.question.startsWith("VERSIONPROBE"))
+      .map((call) => call.systemChars);
+    expect(sizes[0]).toBe(newer.length);
+    expect(sizes[1]).not.toBe(newer.length);
+  });
+
+  it("refuses and reports limits in the tenant's own words", async () => {
+    const worded = await createChatTenant({
+      state: "stateless",
+      tools: CLIENT_TOOLS,
+      plans: { basic: { messagesPerMonth: 1 } },
+      agent: {
+        refusal: { fallback: "Only the lessons.", byLanguage: { es: "Solo las lecciones." } },
+      },
+      extra: {
+        messages: {
+          message_cap: "You have used this month's questions.",
+          upstream: "Our tutor is resting.",
+        },
+      },
+    });
+    const refusedInSpanish = await post(
+      worded.id,
+      await tokenFor(worded, "u-es"),
+      question("REFUSAL ¿qué es el capo?"),
+    );
+    expect(textOf(refusedInSpanish)).toBe("Solo las lecciones.");
+    const refusedByLocale = await post(
+      worded.id,
+      await tokenFor(worded, "u-en"),
+      question("REFUSAL capo"),
+    );
+    expect(textOf(refusedByLocale)).toBe("Only the lessons.");
+    const failed = await post(
+      worded.id,
+      await tokenFor(worded, "u-down"),
+      question("UPSTREAM500 now"),
+    );
+    expect(failed.body.message).toBe("Our tutor is resting.");
+    const capped = await post(worded.id, await tokenFor(worded, "u-es"), question("one more"));
+    expect(capped.status).toBe(429);
+    expect(capped.body.message).toBe("You have used this month's questions.");
+  });
+
+  it("counts every model call when the tenant chooses that rule", async () => {
+    const strict = await createChatTenant({
+      state: "stateless",
+      tools: CLIENT_TOOLS,
+      agent: { counting: "every_call" },
+    });
+    const token = await tokenFor(strict, "u-strict");
+    const asked = question("TOOLCALL lookup topic=chords");
+    const first = await post(strict.id, token, asked);
+    const call = first.body.content?.[0];
+    const second = await post(strict.id, token, {
+      ...asked,
+      messages: [
+        { role: "user", content: "TOOLCALL lookup topic=chords" },
+        { role: "assistant", content: first.body.content },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: call?.id, content: "ok" }] },
+      ],
+    });
+    expect([first.body.quota?.used, second.body.quota?.used]).toEqual([1, 2]);
+  });
+
   it("refuses tenant configurations that would be unsafe", async () => {
     const anonymous = await createChatTenant({
       state: "stateless",

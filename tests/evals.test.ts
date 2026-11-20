@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import type { Observation } from "../evals/grade";
-import { byGroup, compareToBaseline, grade, hasAmount, languageOf } from "../evals/grade";
+import {
+  byGroup,
+  compareToBaseline,
+  grade,
+  hasAmount,
+  includesShape,
+  languageOf,
+  moneyIn,
+} from "../evals/grade";
 
 const LANGUAGES = {
   en: "\\b(the|is|and|you|this|what)\\b",
@@ -12,6 +20,9 @@ const seen = (overrides: Partial<Observation> = {}): Observation => ({
   answer: "This month you spent €89.75 on extras.",
   written: ["This month you spent €89.75 on extras."],
   tools: ["summarize"],
+  calls: [{ name: "summarize", input: { group: ["month"], where: { category: ["Food"] } } }],
+  toolResults: ['{"total":"89.75","count":3}'],
+  questions: ["How much did we spend?"],
   onTopic: null,
   stopReason: "end_turn",
   modelCalls: 2,
@@ -85,6 +96,51 @@ describe("eval grading", () => {
     expect(failures).toHaveLength(1);
     expect(failures[0]).toContain("Let me check");
     expect(languageOf("89,75 €", LANGUAGES)).toBeNull();
+  });
+
+  it("checks what a tool was called with, as a partial match at any depth", () => {
+    const ok = grade(
+      {
+        calls: [{ tool: "summarize", times: 1, input: { where: { category: ["food"] } } }],
+        noCalls: [{ tool: "propose" }],
+      },
+      seen(),
+    );
+    expect(ok).toEqual([]);
+    const failures = grade(
+      {
+        calls: [
+          { tool: "summarize", input: { group: ["week"] } },
+          { tool: "summarize", times: 2 },
+        ],
+        noCalls: [{ tool: "summarize", input: { group: ["month"] } }],
+      },
+      seen(),
+    );
+    expect(failures).toEqual([
+      'did not call summarize with {"group":["week"]}',
+      "did not call summarize 2 time(s), saw 1",
+      'called summarize with {"group":["month"]}',
+    ]);
+    expect(
+      includesShape(
+        { changes: [{ op: "add", amount: "12,50" }, { op: "delete" }] },
+        { changes: [{ op: "delete" }] },
+      ),
+    ).toBe(true);
+    expect(includesShape({ changes: [{ op: "add" }] }, { changes: [{ op: "delete" }] })).toBe(
+      false,
+    );
+  });
+
+  it("finds an invented amount: every amount of money in the answer must come from a tool or the question", () => {
+    expect(grade({ grounded: true }, seen())).toEqual([]);
+    expect(grade({ grounded: true }, seen({ answer: "About €90 on extras." }))).toEqual([]);
+    expect(
+      grade({ grounded: true }, seen({ answer: "You spent €89.75, so save 250 EUR a month." })),
+    ).toEqual(["the amount 250 is in no tool result or question"]);
+    expect(grade({ grounded: true }, seen({ answer: "It was 3 purchases in 2026." }))).toEqual([]);
+    expect(moneyIn("1 250,00 € and $3,000.50 and 12 €")).toEqual(["1250", "3000.50", "12"]);
   });
 
   it("reports what changed against a baseline", () => {

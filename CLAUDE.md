@@ -16,6 +16,17 @@ them and must pass before a commit is pushed.
 - Nothing that is not needed for the response may be awaited on the request path. Metrics and
   logs go through `ctx.waitUntil`.
 
+## Nothing product-specific in the runtime
+
+- The runtime holds mechanisms; a product's rules are tenant settings. A prompt, a wording, a
+  limit, a counting rule, a product or app identifier, a header a single product uses: none of
+  these is a constant in `src/`.
+- When a product needs behaviour the runtime lacks, add it as a setting any tenant could use, with
+  a default that changes nothing for the others, and let the product turn it on in its own
+  tenant document.
+- The same holds for evals: a check is added to the runner in a form any suite could use. What
+  only a product's own code can observe is graded by that product's runner, through the eval pass.
+
 ## Tenants and privacy
 
 - This repository is public. Real tenant configurations, product names, prompts, prices and

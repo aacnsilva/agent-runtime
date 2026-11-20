@@ -1,6 +1,8 @@
 import type { ChatContext } from "../gateway/chat-body";
 import type { MessageBlock, ModelMessage } from "../llm/provider";
 import type { ChatAgent, Contract } from "../tenants/schema";
+import type { Version } from "./version";
+import { isBefore, parseVersion } from "./version";
 
 const textOf = (content: string | MessageBlock[]): string | null => {
   if (typeof content === "string") {
@@ -39,23 +41,30 @@ const localeChoice = (agent: ChatAgent, context: ChatContext): string | undefine
   return typeof locale === "string" ? locale.toLowerCase() : undefined;
 };
 
-export const languageInstruction = (
+type LanguageOption = NonNullable<ChatAgent["language"]>["options"][number];
+
+export const languageOf = (
   agent: ChatAgent,
   question: string,
   context: ChatContext,
-): string => {
+): LanguageOption | undefined => {
   const options = agent.language?.options ?? [];
   const scored = options.map((option) => ({ option, score: countMatches(option.words, question) }));
   const best = Math.max(0, ...scored.map((entry) => entry.score));
   const leaders = scored.filter((entry) => entry.score === best);
   const [leader] = leaders;
   if (leader !== undefined && leaders.length === 1) {
-    return leader.option.instruction;
+    return leader.option;
   }
   const locale = localeChoice(agent, context);
-  const byLocale = options.find((option) => locale?.startsWith(option.id) === true);
-  return (byLocale ?? options[0])?.instruction ?? "";
+  return options.find((option) => locale?.startsWith(option.id) === true) ?? options[0];
 };
+
+export const languageInstruction = (
+  agent: ChatAgent,
+  question: string,
+  context: ChatContext,
+): string => languageOf(agent, question, context)?.instruction ?? "";
 
 export const systemTail = (
   agent: ChatAgent,
@@ -67,9 +76,34 @@ export const systemTail = (
   return [contextBlock(agent, context), closing].filter((part) => part !== "");
 };
 
-export const systemFor = (agent: ChatAgent, contract: Contract): string =>
-  contract.system ?? agent.system;
+const clientVersion = (agent: ChatAgent, context: ChatContext): Version | null => {
+  const value = agent.versionField === undefined ? undefined : context[agent.versionField];
+  return typeof value === "string" ? parseVersion(value) : null;
+};
 
-export const refusalFor = (agent: ChatAgent, question: string): string =>
-  agent.refusal.locales.find((locale) => new RegExp(locale.pattern, "i").test(question))?.text ??
-  agent.refusal.fallback;
+export interface PromptChoice {
+  agent: ChatAgent;
+  contract: Contract;
+  context: ChatContext;
+}
+
+export const systemFor = ({ agent, contract, context }: PromptChoice): string => {
+  const version = clientVersion(agent, context);
+  const rule = agent.systems.find((candidate) => {
+    const contractFits =
+      candidate.contractVersion === undefined || candidate.contractVersion === contract.version;
+    const minimum =
+      candidate.versionAtLeast === undefined ? null : parseVersion(candidate.versionAtLeast);
+    const versionFits = minimum === null || (version !== null && !isBefore(version, minimum));
+    return contractFits && versionFits;
+  });
+  return rule?.system ?? agent.system;
+};
+
+export const refusalFor = (agent: ChatAgent, question: string, context: ChatContext): string => {
+  const language = languageOf(agent, question, context);
+  return (
+    (language === undefined ? undefined : agent.refusal.byLanguage[language.id]) ??
+    agent.refusal.fallback
+  );
+};

@@ -13,7 +13,8 @@ export interface Finished {
   attempts: number;
   usage: Usage;
   costNanoEur: number;
-  toolsCalled?: string[];
+  allCalls?: { name: string; input: Record<string, unknown> }[];
+  serverResults?: string[];
 }
 
 export interface Delivery {

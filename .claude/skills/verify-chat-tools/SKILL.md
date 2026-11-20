@@ -28,6 +28,18 @@ npx vitest run --config e2e/vitest.config.ts chat
 - Unsafe tenant shapes are refused when the tenant is saved: a chat agent for anonymous callers, a
   runtime-run tool that is not read-only, a fetch tool whose host is not on the egress list.
 
+## Settings a tenant chooses
+
+These are tenant settings, each covered by a test. None has a product's value built in.
+
+- `counting`: `first_round_free` (a question and its first tool round are one message),
+  `every_call`, or `questions_only` (stored agents only, where the runtime counts the rounds).
+- `systems`: an ordered list of prompts, each for a contract version, a minimum client version
+  read from the context field named by `versionField`, or both. The first that fits is used.
+- `refusal.byLanguage` and `language`: the refusal is in the language of the question, then of
+  the locale field, then the fallback.
+- `messages`: the tenant's own wording for any error code, such as `message_cap` or `upstream`.
+
 ## Check by hand when the contract format changes
 
 Save a tenant twice with its tools in a different key order and confirm the hash returned by the

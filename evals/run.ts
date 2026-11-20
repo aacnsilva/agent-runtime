@@ -23,6 +23,7 @@ interface Outcome extends CaseResult {
 
 interface Options {
   suite: Suite;
+  folder: string;
   target: Target;
   runs: number;
   parallel: number;
@@ -40,12 +41,19 @@ const say = (line: string): void => {
   process.stdout.write(`${line}\n`);
 };
 
+const imageFor = async (options: Options, entry: EvalCase): Promise<string | undefined> =>
+  entry.image === undefined
+    ? undefined
+    : (await readFile(join(options.folder, entry.image))).toString("base64");
+
 const once = async (options: Options, entry: EvalCase, repeat: number): Promise<Played> => {
   const target = { ...options.target, runId: `${options.target.runId}-r${String(repeat)}` };
+  const image = await imageFor(options, entry);
+  const { suite } = options;
   try {
-    return await playCase(options.suite, entry, target);
+    return await playCase({ suite, entry, target, image });
   } catch {
-    return playCase(options.suite, entry, { ...target, runId: `${target.runId}-retry` });
+    return playCase({ suite, entry, target: { ...target, runId: `${target.runId}-retry` }, image });
   }
 };
 
@@ -180,6 +188,7 @@ const main = async (): Promise<number> => {
   };
   const options = {
     suite,
+    folder: dirname(casesPath),
     target,
     runs: Math.max(1, Number(values.runs)),
     parallel: Math.max(1, Number(values.parallel)),

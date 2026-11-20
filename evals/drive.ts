@@ -30,7 +30,13 @@ interface Reply {
   sessionId?: string;
   content?: Block[];
   error?: string;
-  eval?: { modelCalls: number; tools: string[]; costNanoEur: number };
+  eval?: {
+    modelCalls: number;
+    tools: string[];
+    calls: { name: string; input: unknown }[];
+    toolResults: string[];
+    costNanoEur: number;
+  };
 }
 
 interface Progress {
@@ -81,20 +87,22 @@ const record = (progress: Progress, reply: Reply): void => {
     played.modelCalls += reply.eval.modelCalls;
     played.costNanoEur += reply.eval.costNanoEur;
     played.tools.push(...reply.eval.tools);
+    played.calls.push(...reply.eval.calls);
+    played.toolResults.push(...reply.eval.toolResults);
   }
 };
 
-const resultsFor = (suite: Suite, entry: EvalCase, reply: Reply): Json[] =>
+const cannedResult = (suite: Suite, entry: EvalCase, tool: string): string =>
+  entry.toolResults?.[tool] ?? suite.toolResults[tool] ?? DEFAULT_TOOL_RESULT;
+
+const resultsFor = (play: Play, reply: Reply): Json[] =>
   (reply.content ?? [])
     .filter((block) => block.type === "tool_use")
-    .map((block) => ({
-      type: "tool_result",
-      tool_use_id: block.id,
-      content:
-        entry.toolResults?.[block.name ?? ""] ??
-        suite.toolResults[block.name ?? ""] ??
-        DEFAULT_TOOL_RESULT,
-    }));
+    .map((block) => {
+      const content = cannedResult(play.suite, play.entry, block.name ?? "");
+      play.progress.played.toolResults.push(content);
+      return { type: "tool_result", tool_use_id: block.id, content };
+    });
 
 type Ask = (question: string) => Promise<void>;
 
@@ -103,7 +111,20 @@ interface Play {
   entry: EvalCase;
   target: Target;
   progress: Progress;
+  image: string | undefined;
 }
+
+const contentOf = (play: Play, question: string): unknown => {
+  const { image } = play;
+  if (image === undefined) {
+    return question;
+  }
+  play.image = undefined;
+  return [
+    { type: "image", media_type: "image/jpeg", data: image },
+    { type: "text", text: question },
+  ];
+};
 
 const frame = (play: Play): Json => ({
   contractVersion: play.suite.contractVersion,
@@ -140,7 +161,7 @@ const untilAnswered = async (
 const askStored =
   (play: Play): Ask =>
   async (question) => {
-    const { progress, target, entry, suite } = play;
+    const { progress, target, entry } = play;
     const post = async (body: Json): Promise<Reply> => {
       const reply = await send(target, entry.id, {
         ...frame(play),
@@ -150,21 +171,21 @@ const askStored =
       progress.sessionId = reply.sessionId ?? progress.sessionId;
       return reply;
     };
-    await untilAnswered(play, await post({ message: question }), async (reply) =>
-      post({ toolResults: resultsFor(suite, entry, reply) }),
+    await untilAnswered(play, await post({ message: contentOf(play, question) }), async (reply) =>
+      post({ toolResults: resultsFor(play, reply) }),
     );
   };
 
 const askStateless =
   (play: Play): Ask =>
   async (question) => {
-    const { progress, target, entry, suite } = play;
+    const { progress, target, entry } = play;
     const post = async (): Promise<Reply> =>
       send(target, entry.id, { ...frame(play), messages: progress.history });
     progress.history.push({ role: "user", content: question });
     const last = await untilAnswered(play, await post(), async (reply) => {
       progress.history.push({ role: "assistant", content: reply.content ?? [] });
-      progress.history.push({ role: "user", content: resultsFor(suite, entry, reply) });
+      progress.history.push({ role: "user", content: resultsFor(play, reply) });
       return post();
     });
     progress.history.push({ role: "assistant", content: last.content ?? [] });
@@ -172,7 +193,14 @@ const askStateless =
 
 const ASKERS = { gated: askGated, stored: askStored, stateless: askStateless };
 
-export const playCase = async (suite: Suite, entry: EvalCase, target: Target): Promise<Played> => {
+export interface CaseRun {
+  suite: Suite;
+  entry: EvalCase;
+  target: Target;
+  image: string | undefined;
+}
+
+export const playCase = async ({ suite, entry, target, image }: CaseRun): Promise<Played> => {
   const startedAt = performance.now();
   const progress: Progress = {
     history: [],
@@ -181,6 +209,9 @@ export const playCase = async (suite: Suite, entry: EvalCase, target: Target): P
       answer: "",
       written: [],
       tools: [],
+      calls: [],
+      toolResults: [],
+      questions: [...entry.questions],
       onTopic: null,
       stopReason: null,
       modelCalls: 0,
@@ -188,7 +219,7 @@ export const playCase = async (suite: Suite, entry: EvalCase, target: Target): P
       costNanoEur: 0,
     },
   };
-  const ask = ASKERS[suite.agent]({ suite, entry, target, progress });
+  const ask = ASKERS[suite.agent]({ suite, entry, target, progress, image });
   for (const question of entry.questions) {
     await ask(question);
   }

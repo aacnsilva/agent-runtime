@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import tutor from "../examples/tenants/tutor.tenant.json" with { type: "json" };
-import { languageInstruction, systemTail } from "../src/agent/chat-prompt";
+import { languageInstruction, refusalFor, systemFor, systemTail } from "../src/agent/chat-prompt";
 import { createChatStream } from "../src/agent/chat-stream";
 import { parseChat } from "../src/gateway/chat-body";
 import { Rejection } from "../src/http/respond";
@@ -151,6 +151,48 @@ describe("chat prompt", () => {
       "Locale: en\nTopics: chords",
       `${agent.reminder ?? ""} Answer in English.`,
     ]);
+  });
+});
+
+describe("prompt and refusal chosen by tenant rules", () => {
+  const agent = agentOf({
+    versionField: "appVersion",
+    context: [
+      { name: "locale", label: "Locale", kind: "text", required: false },
+      { name: "appVersion", label: "App version", kind: "text", required: false },
+    ],
+    systems: [
+      { contractVersion: 2, versionAtLeast: "2.0", system: "contract two on a new app" },
+      { versionAtLeast: "1.5.0", system: "any contract from 1.5" },
+      { contractVersion: 2, system: "contract two on an old app" },
+    ],
+    contracts: [
+      { version: 1, tools: [] },
+      { version: 2, tools: [] },
+    ],
+    refusal: { fallback: "No.", byLanguage: { es: "No, en español." } },
+  });
+  const [one, two] = agent.contracts;
+  if (one === undefined || two === undefined) {
+    throw new Error("two contracts expected");
+  }
+  const pick = (contract: typeof one, appVersion?: string): string =>
+    systemFor({ agent, contract, context: appVersion === undefined ? {} : { appVersion } });
+
+  it("uses the first rule whose contract and client version both fit, else the default prompt", () => {
+    expect(pick(two, "2.1.0")).toBe("contract two on a new app");
+    expect(pick(two, "1.9")).toBe("any contract from 1.5");
+    expect(pick(two, "1.4.9")).toBe("contract two on an old app");
+    expect(pick(two)).toBe("contract two on an old app");
+    expect(pick(one, "1.5.0")).toBe("any contract from 1.5");
+    expect(pick(one, "1.4")).toBe(agent.system);
+    expect(pick(one, "not a version")).toBe(agent.system);
+  });
+
+  it("refuses in the language of the question, then of the locale, then in the fallback", () => {
+    expect(refusalFor(agent, "¿qué es el capo?", { locale: "en" })).toBe("No, en español.");
+    expect(refusalFor(agent, "capo", { locale: "es" })).toBe("No, en español.");
+    expect(refusalFor(agent, "what is the capo", { locale: "es" })).toBe("No.");
   });
 });
 

@@ -210,13 +210,24 @@ describe("the eval runner", () => {
           id: "fetches",
           group: "tools",
           questions: ["TOOLCALL get_lesson slug=intro"],
-          expect: { tools: ["get_lesson"], contains: ["MARKER-LESSON-INTRO"], maxModelCalls: 2 },
+          expect: {
+            tools: ["get_lesson"],
+            calls: [{ tool: "get_lesson", times: 1, input: { slug: "intro" } }],
+            noCalls: [{ tool: "show_card" }],
+            contains: ["MARKER-LESSON-INTRO"],
+            maxModelCalls: 2,
+          },
         },
         {
           id: "client-tool",
           group: "tools",
           questions: ["TOOLCALL show_card title=Hi"],
-          expect: { tools: ["show_card"], contains: ["CARD-FROM-SUITE"], stopReason: "end_turn" },
+          expect: {
+            calls: [{ tool: "show_card", input: { title: "Hi" } }],
+            contains: ["CARD-FROM-SUITE"],
+            stopReason: "end_turn",
+            grounded: true,
+          },
         },
         {
           id: "no-tool",

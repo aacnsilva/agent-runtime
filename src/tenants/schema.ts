@@ -119,7 +119,6 @@ const toolSchema = z.object({
 
 const contractSchema = z.object({
   version: z.number().int().min(1).max(999),
-  system: systemPrompt.optional(),
   allowsImages: z.boolean().default(false),
   tools: z.array(toolSchema).max(40),
 });
@@ -156,6 +155,14 @@ const languageSchema = z.object({
     .max(8),
 });
 
+const version = z.string().regex(/^\d{1,3}\.\d{1,3}(\.\d{1,3})?$/);
+
+const systemRule = z.object({
+  contractVersion: z.number().int().min(1).max(999).optional(),
+  versionAtLeast: version.optional(),
+  system: systemPrompt,
+});
+
 const chatAgent = z.object({
   kind: z.literal("chat"),
   tier,
@@ -164,13 +171,15 @@ const chatAgent = z.object({
   thinking: z.enum(["default", "off"]).default("off"),
   system: systemPrompt,
   reminder: z.string().min(1).max(1000).optional(),
+  systems: z.array(systemRule).max(20).default([]),
+  versionField: z.string().optional(),
   refusal: z.object({
     fallback: shortText,
-    locales: z
-      .array(z.object({ pattern, text: shortText }))
-      .max(10)
-      .default([]),
+    byLanguage: z.record(z.string().min(2).max(5), shortText).default({}),
   }),
+  counting: z
+    .enum(["first_round_free", "every_call", "questions_only"])
+    .default("first_round_free"),
   language: languageSchema.optional(),
   state: z.enum(["stateless", "stored"]),
   maxRounds: z.number().int().min(1).max(20).default(8),
@@ -236,6 +245,14 @@ const toolsOf = (
     : never
   : never => (tenant.agent.kind === "chat" ? tenant.agent.contracts.flatMap((c) => c.tools) : []);
 
+const versionRulesHaveAField = (tenant: Draft): boolean => {
+  const { agent } = tenant;
+  if (agent.kind !== "chat" || agent.systems.every((rule) => rule.versionAtLeast === undefined)) {
+    return true;
+  }
+  return agent.context.some((field) => field.name === agent.versionField && field.kind === "text");
+};
+
 const serverToolsOnlyRead = (tenant: Draft): boolean =>
   toolsOf(tenant).every((tool) => tool.run.kind === "client" || tool.effect === "read");
 
@@ -253,10 +270,25 @@ const draftSchema = z.object({
   egress: z.object({ allowedHosts: z.array(hostname).max(20) }).default({ allowedHosts: [] }),
   knowledge: knowledgeSchema.optional(),
   evals: evalsSchema.optional(),
+  messages: z.record(z.string().regex(/^[a-z_]{1,40}$/), shortText).default({}),
   agent: agentSchema,
 });
 
 export const tenantSchema = draftSchema
+  .refine(versionRulesHaveAField, {
+    message: "a system rule with versionAtLeast needs versionField to name a text context field",
+    path: ["agent"],
+  })
+  .refine(
+    (tenant) =>
+      tenant.agent.kind !== "chat" ||
+      tenant.agent.counting !== "questions_only" ||
+      tenant.agent.state === "stored",
+    {
+      message: "questions_only counting needs a stored agent, where the runtime counts the rounds",
+      path: ["agent"],
+    },
+  )
   .refine((tenant) => tenant.evals?.plan === undefined || tenant.evals.plan in tenant.plans, {
     message: "the eval plan must be defined in plans",
     path: ["evals"],

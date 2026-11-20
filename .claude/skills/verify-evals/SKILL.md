@@ -30,6 +30,17 @@ provider, so it proves the mechanics, not any model's answers.
 - The runner grades gated, stateless and stored tenants, answers client-run tools from the suite,
   names each failed check, compares against a baseline, and exits non-zero on a failure.
 
+## Checks a suite can use
+
+`tools`, `anyTool`, `noTools`, `noAnyTool`; `calls` and `noCalls` (a tool, how many times, and a
+partial match on its input at any depth); `contains`, `containsAny`, `excludes`; `amounts`,
+`excludesAmounts`; `grounded` (every amount of money in the answer appears in a tool result or a
+question, as written or rounded); `language`; `onTopic`; `stopReason`; `maxModelCalls`;
+`maxSeconds`. A case may attach one JPEG with `image`, a path beside the suite file.
+
+A check that needs something only a product's own code can observe, such as the state of an app
+after a tool ran, belongs in that product's runner, which uses the same eval pass.
+
 ## Running real evals
 
 Real evals call the real model and cost money, so they are never part of `npm run check`.

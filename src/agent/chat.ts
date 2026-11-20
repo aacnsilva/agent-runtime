@@ -44,7 +44,8 @@ export interface RoundResult {
   body: Record<string, unknown>;
   content: ReplyBlock[];
   calls: ToolUseBlock[];
-  toolsCalled: string[];
+  allCalls: ToolUseBlock[];
+  serverResults: string[];
   quota: QuotaView | null;
   model: ModelId | null;
   attempts: number;
@@ -59,13 +60,18 @@ const toolSpecs = (contract: Contract): Contract["tools"] => contract.tools;
 
 const promptChars = (turn: ChatTurn, tail: readonly string[]): number =>
   conversationChars(turn.messages, turn.agent.input.imageChars) +
-  systemFor(turn.agent, turn.contract).length +
+  systemFor(turn).length +
   tail.reduce((total, part) => total + part.length, 0) +
   JSON.stringify(toolSpecs(turn.contract)).length;
 
 const beginQuota = async (turn: ChatTurn): Promise<QuotaGrant> => {
   const limit = turn.principal.messagesPerMonth ?? Number.MAX_SAFE_INTEGER;
-  const grant = await turn.quota.begin({ now: Date.now(), limit, toolRounds: turn.toolRounds });
+  const grant = await turn.quota.begin({
+    now: Date.now(),
+    limit,
+    toolRounds: turn.toolRounds,
+    counting: turn.agent.counting,
+  });
   if (!grant.ok) {
     throw new Rejection(429, grant.error, {
       message: CAP_MESSAGE,
@@ -118,7 +124,8 @@ const failure = (code: string, body: Record<string, unknown>, measured: Measured
   body,
   content: [],
   calls: [],
-  toolsCalled: [],
+  allCalls: [],
+  serverResults: [],
   quota: null,
   ...measured,
 });
@@ -130,7 +137,7 @@ const success = (
 ): Omit<RoundResult, keyof Measured> | null => {
   const quota = { used: grant.used, limit: grant.limit };
   if (reply.stopReason === "refusal") {
-    const text = refusalFor(turn.agent, latestQuestion(turn.messages));
+    const text = refusalFor(turn.agent, latestQuestion(turn.messages), turn.context);
     const content: ReplyBlock[] = [{ type: "text", text }];
     return {
       status: 200,
@@ -138,7 +145,8 @@ const success = (
       body: { stopReason: "end_turn", content, quota },
       content,
       calls: [],
-      toolsCalled: [],
+      allCalls: [],
+      serverResults: [],
       quota,
     };
   }
@@ -155,7 +163,8 @@ const success = (
     body: { stopReason, content, quota },
     content,
     calls,
-    toolsCalled: calls.map((call) => call.name),
+    allCalls: calls,
+    serverResults: [],
     quota,
   };
 };
@@ -177,7 +186,7 @@ export const chatRound = async (turn: ChatTurn, listeners: Listeners): Promise<R
     request: {
       maxOutputTokens: agent.maxOutputTokens,
       effort: spend.effortOverride ?? agent.effort,
-      system: systemFor(agent, turn.contract),
+      system: systemFor(turn),
       systemTail: tail,
       messages: turn.messages,
       trailingReminder: undefined,
